@@ -15,7 +15,8 @@ let state = {
     minutosTolerancia: 15,
     puntosPuntual: 10,
     puntosTolerancia: 5,
-    puntosTarde: 0
+    puntosTarde: 0,
+    horaRevisionInasistencia: '13:00'
   },
   students: [],
   attendance: []
@@ -346,6 +347,7 @@ function renderSettingsFields(){
   document.getElementById('puntosPuntual').value = state.config.puntosPuntual != null ? state.config.puntosPuntual : 10;
   document.getElementById('puntosTolerancia').value = state.config.puntosTolerancia != null ? state.config.puntosTolerancia : 5;
   document.getElementById('puntosTarde').value = state.config.puntosTarde != null ? state.config.puntosTarde : 0;
+  document.getElementById('horaRevisionInasistencia').value = state.config.horaRevisionInasistencia || '13:00';
   document.getElementById('appsScriptUrlDisplay').value = APPS_SCRIPT_URL;
 }
 
@@ -394,6 +396,22 @@ document.getElementById('saveScoreSettingsBtn').addEventListener('click', async 
   }catch(e){ showToast('No se pudo guardar: ' + e.message, true); }
 });
 
+document.getElementById('saveAbsenceSettingsBtn').addEventListener('click', async ()=>{
+  const cfg = { horaRevisionInasistencia: document.getElementById('horaRevisionInasistencia').value || '13:00' };
+  try{
+    const result = await apiPostWithRetry({ type:'save_config', config: cfg });
+    state.config = Object.assign({}, state.config, result.config);
+    showToast('Hora de revisión de inasistencias guardada');
+  }catch(e){ showToast('No se pudo guardar: ' + e.message, true); }
+});
+
+document.getElementById('sendAbsenceCheckNowBtn').addEventListener('click', async ()=>{
+  try{
+    const result = await apiPostWithRetry({ type:'send_absence_check_now' });
+    showToast(`Revisión enviada. Alumnos ausentes notificados: ${result.ausentes}`);
+  }catch(e){ showToast('No se pudo enviar: ' + e.message, true); }
+});
+
 document.getElementById('changeConnectionBtn').addEventListener('click', ()=>{
   if(!confirm('¿Cambiar la conexión con la base de datos en este computador?')) return;
   localStorage.removeItem(LS_URL_KEY);
@@ -429,9 +447,15 @@ document.getElementById('setUserPasswordBtn').addEventListener('click', async ()
 });
 
 // ================= CallMeBot (WhatsApp gratuito no oficial) =================
-function sendCallMeBot(phone, apikey, message){
-  const url = `https://api.callmebot.com/whatsapp.php?phone=${encodeURIComponent(phone)}&text=${encodeURIComponent(message)}&apikey=${encodeURIComponent(apikey)}`;
-  fetch(url, { mode: 'no-cors' }).catch(()=>{});
+// Se envía a través del backend (Apps Script) en vez de directo desde el navegador,
+// porque así SÍ podemos leer la respuesta real de CallMeBot (éxito o el motivo del error).
+async function sendCallMeBot(phone, apikey, message){
+  try{
+    const result = await apiPost({ type:'notify_whatsapp', phone, apikey, mensaje: message });
+    return result;
+  }catch(e){
+    return { ok:false, respuesta: e.message };
+  }
 }
 
 // ================= Tabs =================
@@ -514,6 +538,8 @@ function openStudentModal(rut){
         <input type="email" id="f_apEmail" placeholder="apoderado@correo.cl" value="${existing ? escapeHtml(existing.apoderadoEmail||'') : ''}">
         <label>CallMeBot API Key (opcional, WhatsApp gratuito)</label>
         <input type="text" id="f_apCmb" placeholder="Ej: 123456" value="${existing ? escapeHtml(existing.callmebotApiKey||'') : ''}">
+        <button class="btn ghost sm" id="testWhatsappBtn" style="margin-top:8px;">Probar WhatsApp ahora</button>
+        <div id="testWhatsappResult"></div>
         <div style="display:flex;gap:10px;margin-top:20px;">
           <button class="btn gold" id="saveStudentBtn" style="flex:1;">Guardar</button>
           <button class="btn ghost" id="cancelStudentBtn" style="flex:1;">Cancelar</button>
@@ -521,6 +547,20 @@ function openStudentModal(rut){
       </div>
     </div>
   `;
+  document.getElementById('testWhatsappBtn').addEventListener('click', async ()=>{
+    const phone = document.getElementById('f_apPhone').value.trim();
+    const apikey = document.getElementById('f_apCmb').value.trim();
+    const resultBox = document.getElementById('testWhatsappResult');
+    if(!phone || !apikey){
+      resultBox.innerHTML = '<div class="locked-note">Completa teléfono y CallMeBot API Key antes de probar.</div>';
+      return;
+    }
+    resultBox.innerHTML = '<div class="field-hint">Enviando...</div>';
+    const resultado = await sendCallMeBot(phone, apikey, 'Mensaje de prueba desde la plataforma de asistencia.');
+    const texto = (resultado && resultado.respuesta) || 'Sin respuesta';
+    const esError = texto.toLowerCase().includes('error');
+    resultBox.innerHTML = `<div class="${esError ? 'locked-note' : 'note blue'}"><b>Respuesta de CallMeBot:</b> ${escapeHtml(texto)}</div>`;
+  });
   document.getElementById('cancelStudentBtn').addEventListener('click', closeModal);
   document.getElementById('modalBg').addEventListener('click', (e)=>{ if(e.target.id==='modalBg') closeModal(); });
   document.getElementById('saveStudentBtn').addEventListener('click', async ()=>{
@@ -584,17 +624,20 @@ function openQrModal(rut){
         <h3 style="margin-top:0;color:var(--navy);">${escapeHtml(s.nombre)}</h3>
         <div style="color:#777;font-size:0.85rem;margin-bottom:10px;">${formatRut(s.rut)} · ${escapeHtml(s.curso||'')}</div>
         <div class="qr-print"><div id="qrCanvasBox"></div><div style="font-size:0.8rem;color:#666;">Código QR para el carné del alumno</div></div>
-        <div style="display:flex;gap:10px;margin-top:16px;">
-          <button class="btn gold" id="downloadQrBtn" style="flex:1;">Descargar</button>
+        <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;">
+          <button class="btn gold" id="fullscreenQrBtn" style="flex:1 1 100%;">Ver en pantalla completa (para escanear)</button>
+          <button class="btn ghost" id="downloadQrBtn" style="flex:1;">Descargar</button>
           <button class="btn ghost" id="closeQrBtn" style="flex:1;">Cerrar</button>
         </div>
       </div>
     </div>
   `;
-  const qr = qrcode(0, 'M');
+  // Nivel de corrección de errores alto ('H') y celdas más grandes: más fácil
+  // de leer para lectores USB/celular desde una pantalla, con más margen de tolerancia.
+  const qr = qrcode(0, 'H');
   qr.addData(cleanRut(s.rut));
   qr.make();
-  document.getElementById('qrCanvasBox').innerHTML = qr.createImgTag(6, 8);
+  document.getElementById('qrCanvasBox').innerHTML = qr.createImgTag(10, 12);
   document.getElementById('closeQrBtn').addEventListener('click', closeModal);
   document.getElementById('modalBg').addEventListener('click', (e)=>{ if(e.target.id==='modalBg') closeModal(); });
   document.getElementById('downloadQrBtn').addEventListener('click', ()=>{
@@ -603,6 +646,31 @@ function openQrModal(rut){
     link.download = `QR_${cleanRut(s.rut)}.gif`;
     link.href = img.src;
     link.click();
+  });
+  document.getElementById('fullscreenQrBtn').addEventListener('click', ()=>{
+    openQrFullscreen(s);
+  });
+}
+
+function openQrFullscreen(s){
+  const modalRoot = document.getElementById('modalRoot');
+  const qr = qrcode(0, 'H');
+  qr.addData(cleanRut(s.rut));
+  qr.make();
+  modalRoot.innerHTML = `
+    <div class="qr-fullscreen" id="qrFullscreen">
+      <div class="qr-fullscreen-inner">
+        <div id="qrFullscreenBox"></div>
+        <div class="qr-fullscreen-name">${escapeHtml(s.nombre)}</div>
+        <div class="qr-fullscreen-hint">Sube el brillo al máximo y acerca esta pantalla al lector</div>
+        <button class="btn ghost sm" id="closeFullscreenBtn">Cerrar</button>
+      </div>
+    </div>
+  `;
+  document.getElementById('qrFullscreenBox').innerHTML = qr.createImgTag(14, 10);
+  document.getElementById('closeFullscreenBtn').addEventListener('click', closeModal);
+  document.getElementById('qrFullscreen').addEventListener('click', (e)=>{
+    if(e.target.id === 'qrFullscreen') closeModal();
   });
 }
 
@@ -627,7 +695,13 @@ function switchScanMode(mode){
 
 function focusUsbInput(){
   const el = document.getElementById('usbInput');
-  if(scanMode === 'usb' && document.getElementById('tab-scan').style.display !== 'none') el.focus();
+  const loginOpen = document.getElementById('loginOverlay').style.display === 'flex';
+  const setupOpen = document.getElementById('setupOverlay').style.display === 'flex';
+  const modalOpen = isModalOpen();
+  if(scanMode === 'usb' && sessionLoggedIn && !loginOpen && !setupOpen && !modalOpen &&
+     document.getElementById('tab-scan').style.display !== 'none'){
+    el.focus();
+  }
 }
 
 const usbInput = document.getElementById('usbInput');
@@ -748,8 +822,14 @@ async function handleScan(rawValue){
     }catch(e){ /* seguimos igual, la asistencia se registra de todas formas */ }
   }
   if(student.callmebotApiKey){
-    sendCallMeBot(student.apoderadoTelefono, student.callmebotApiKey, mensaje);
-    canal.push('whatsapp');
+    const resultadoWsp = await sendCallMeBot(student.apoderadoTelefono, student.callmebotApiKey, mensaje);
+    const textoResp = (resultadoWsp && resultadoWsp.respuesta || '').toLowerCase();
+    if(textoResp.includes('error')){
+      console.warn('CallMeBot respondió con error:', resultadoWsp.respuesta);
+      showToast('WhatsApp no se pudo enviar: ' + resultadoWsp.respuesta, true);
+    } else {
+      canal.push('whatsapp');
+    }
   }
   if(canal.length === 0) canal.push('simulado');
 
