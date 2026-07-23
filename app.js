@@ -10,7 +10,12 @@ let state = {
     userPasswordHash: '',
     emailDireccion: '',
     emailInspectoria: '',
-    horaEnvio: '18:00'
+    horaEnvio: '18:00',
+    horaInicio: '08:00',
+    minutosTolerancia: 15,
+    puntosPuntual: 10,
+    puntosTolerancia: 5,
+    puntosTarde: 0
   },
   students: [],
   attendance: []
@@ -298,6 +303,20 @@ function dateStrDaysAgo(n){
   return d.toLocaleDateString('es-CL');
 }
 function timeStr(){ return new Date().toLocaleTimeString('es-CL', {hour:'2-digit', minute:'2-digit'}); }
+
+function minutosDesdeMedianoche(hhmm){
+  const partes = String(hhmm || '00:00').split(':');
+  return (parseInt(partes[0],10)||0) * 60 + (parseInt(partes[1],10)||0);
+}
+function calcularPuntosLocal(horaLlegada){
+  const cfg = state.config;
+  const llegada = minutosDesdeMedianoche(horaLlegada);
+  const inicio = minutosDesdeMedianoche(cfg.horaInicio || '08:00');
+  const tolerancia = parseInt(cfg.minutosTolerancia, 10) || 15;
+  if(llegada <= inicio) return parseInt(cfg.puntosPuntual, 10) || 0;
+  if(llegada <= inicio + tolerancia) return parseInt(cfg.puntosTolerancia, 10) || 0;
+  return parseInt(cfg.puntosTarde, 10) || 0;
+}
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
 function escapeHtml(str){
   return (str||'').toString().replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -322,6 +341,11 @@ function renderSettingsFields(){
   document.getElementById('emailDireccion').value = state.config.emailDireccion || '';
   document.getElementById('emailInspectoria').value = state.config.emailInspectoria || '';
   document.getElementById('horaEnvio').value = state.config.horaEnvio || '18:00';
+  document.getElementById('horaInicio').value = state.config.horaInicio || '08:00';
+  document.getElementById('minutosTolerancia').value = state.config.minutosTolerancia != null ? state.config.minutosTolerancia : 15;
+  document.getElementById('puntosPuntual').value = state.config.puntosPuntual != null ? state.config.puntosPuntual : 10;
+  document.getElementById('puntosTolerancia').value = state.config.puntosTolerancia != null ? state.config.puntosTolerancia : 5;
+  document.getElementById('puntosTarde').value = state.config.puntosTarde != null ? state.config.puntosTarde : 0;
   document.getElementById('appsScriptUrlDisplay').value = APPS_SCRIPT_URL;
 }
 
@@ -353,6 +377,21 @@ document.getElementById('sendNowBtn').addEventListener('click', async ()=>{
     await apiPostWithRetry({ type:'send_report_now' });
     showToast('Solicitud de envío enviada. Revisa el correo en unos segundos.');
   }catch(e){ showToast('No se pudo enviar: ' + e.message, true); }
+});
+
+document.getElementById('saveScoreSettingsBtn').addEventListener('click', async ()=>{
+  const cfg = {
+    horaInicio: document.getElementById('horaInicio').value || '08:00',
+    minutosTolerancia: parseInt(document.getElementById('minutosTolerancia').value, 10) || 0,
+    puntosPuntual: parseInt(document.getElementById('puntosPuntual').value, 10) || 0,
+    puntosTolerancia: parseInt(document.getElementById('puntosTolerancia').value, 10) || 0,
+    puntosTarde: parseInt(document.getElementById('puntosTarde').value, 10) || 0
+  };
+  try{
+    const result = await apiPostWithRetry({ type:'save_config', config: cfg });
+    state.config = Object.assign({}, state.config, result.config);
+    showToast('Configuración de puntaje guardada');
+  }catch(e){ showToast('No se pudo guardar: ' + e.message, true); }
 });
 
 document.getElementById('changeConnectionBtn').addEventListener('click', ()=>{
@@ -427,7 +466,7 @@ function renderStudents(){
   list.innerHTML = filtered.map(s=>`
     <div class="student-row">
       <div class="student-info">
-        <b>${escapeHtml(s.nombre)}</b>
+        <b>${escapeHtml(s.nombre)}</b> <span class="chip score-chip">🏆 ${Number(s.puntaje)||0} pts</span>
         <div>${formatRut(s.rut)} · ${escapeHtml(s.curso||'-')}</div>
         <div>Apoderado: ${escapeHtml(s.apoderadoNombre||'-')} · ${escapeHtml(s.apoderadoTelefono||'-')}</div>
         <div>
@@ -439,6 +478,7 @@ function renderStudents(){
       <div class="row-actions">
         <button class="btn sm ghost" onclick="openQrModal('${s.rut}')">QR</button>
         ${sessionAdmin ? `<button class="btn sm ghost" onclick="openStudentModal('${s.rut}')">Editar</button>` : ''}
+        ${sessionAdmin ? `<button class="btn sm ghost" onclick="resetPuntaje('${s.rut}')">Reiniciar puntaje</button>` : ''}
         ${sessionAdmin ? `<button class="btn sm danger" onclick="deleteStudent('${s.rut}')">Borrar</button>` : ''}
       </div>
     </div>
@@ -520,6 +560,18 @@ async function deleteStudent(rut){
     renderStudents();
     showToast('Alumno eliminado');
   }catch(e){ showToast('No se pudo borrar: ' + e.message, true); }
+}
+
+async function resetPuntaje(rut){
+  if(!sessionAdmin){ showToast('Solo un administrador puede reiniciar el puntaje', true); return; }
+  if(!confirm('¿Reiniciar el puntaje de este alumno a 0?')) return;
+  try{
+    await apiPostWithRetry({ type:'reset_puntaje', rut });
+    const s = state.students.find(s=>cleanRut(s.rut)===cleanRut(rut));
+    if(s) s.puntaje = 0;
+    renderStudents();
+    showToast('Puntaje reiniciado');
+  }catch(e){ showToast('No se pudo reiniciar: ' + e.message, true); }
 }
 
 function openQrModal(rut){
@@ -701,25 +753,36 @@ async function handleScan(rawValue){
   }
   if(canal.length === 0) canal.push('simulado');
 
+  const horaActual = timeStr();
   const record = {
     id: uid(), rut: student.rut, nombre: student.nombre, curso: student.curso,
-    fecha: todayStr(), hora: timeStr(), timestamp: Date.now(), canal: canal.join(', ')
+    fecha: todayStr(), hora: horaActual, timestamp: Date.now(), canal: canal.join(', ')
   };
   state.attendance.unshift(record);
   renderHistory();
-  apiPostWithRetry({ type:'add_attendance', record }).catch(()=>{});
+
+  // Puntaje estimado localmente para feedback inmediato; se confirma con el
+  // valor real que calcula el servidor (fuente de verdad única).
+  let puntosGanados = calcularPuntosLocal(horaActual);
+  try{
+    const result = await apiPostWithRetry({ type:'add_attendance', record });
+    if(result && typeof result.puntos === 'number') puntosGanados = result.puntos;
+  }catch(e){ /* ya se avisó del reintento en apiPostWithRetry */ }
+  student.puntaje = (Number(student.puntaje) || 0) + puntosGanados;
+  renderStudents();
 
   const badges = canal.map(c=>{
     if(c==='correo') return '<span class="result-badge">✉️ Correo enviado</span>';
     if(c==='whatsapp') return '<span class="result-badge">💬 WhatsApp enviado</span>';
     return '<span class="result-badge">Solo registrado (sin canal configurado)</span>';
   }).join('');
+  const puntosBadge = `<span class="result-badge">🏆 +${puntosGanados} puntos (total: ${student.puntaje})</span>`;
 
   area.innerHTML = `<div class="result-card"><div class="result-name">${escapeHtml(student.nombre)}</div>
     <div class="result-row"><span>Curso</span><span>${escapeHtml(student.curso||'-')}</span></div>
     <div class="result-row"><span>Fecha</span><span>${record.fecha}</span></div>
     <div class="result-row"><span>Hora</span><span>${record.hora}</span></div>
-    <div style="margin-top:12px;">${badges}</div></div>`;
+    <div style="margin-top:12px;">${badges}${puntosBadge}</div></div>`;
 
   showToast(canal.includes('simulado')
     ? `Registrado. Sin correo/WhatsApp configurado para ${student.nombre}.`
@@ -758,7 +821,29 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
 });
 
 // ================= Estadísticas =================
+function renderRanking(){
+  const box = document.getElementById('rankingList');
+  if(!box) return;
+  const ranked = [...state.students]
+    .map(s => ({ nombre: s.nombre, curso: s.curso, puntaje: Number(s.puntaje) || 0 }))
+    .sort((a,b) => b.puntaje - a.puntaje)
+    .slice(0, 10);
+  if(ranked.length === 0){
+    box.innerHTML = '<div class="empty">Aún no hay puntajes para mostrar.</div>';
+    return;
+  }
+  const medallas = ['🥇','🥈','🥉'];
+  box.innerHTML = ranked.map((s, i) => `
+    <div class="rank-row">
+      <span class="rank-pos">${medallas[i] || (i+1)}</span>
+      <span class="rank-name">${escapeHtml(s.nombre)} <span style="color:#999;font-size:0.78rem;">· ${escapeHtml(s.curso||'-')}</span></span>
+      <span class="rank-pts">${s.puntaje} pts</span>
+    </div>
+  `).join('');
+}
+
 function renderStats(){
+  renderRanking();
   const hoy = todayStr();
   const porCurso = {};
   state.attendance.filter(r=>r.fecha===hoy).forEach(r=>{
@@ -815,6 +900,7 @@ function startPolling(){
 window.openQrModal = openQrModal;
 window.openStudentModal = openStudentModal;
 window.deleteStudent = deleteStudent;
+window.resetPuntaje = resetPuntaje;
 
 // ================= Arranque =================
 (function boot(){
