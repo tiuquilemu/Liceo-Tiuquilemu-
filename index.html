@@ -238,6 +238,15 @@
     display:inline-block;font-size:0.68rem;padding:2px 7px;border-radius:999px;
     background:var(--cream);color:var(--navy);margin-right:4px;border:1px solid #e2ddc8;
   }
+  .score-chip{background:var(--gold);color:var(--navy);border-color:var(--gold);font-weight:700;}
+  .rank-row{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:9px 0;border-bottom:1px solid #eee;
+  }
+  .rank-row:last-child{border-bottom:none;}
+  .rank-pos{font-weight:700;color:var(--navy);width:26px;flex-shrink:0;}
+  .rank-name{flex:1;font-size:0.9rem;}
+  .rank-pts{font-weight:700;color:var(--gold);background:var(--navy);padding:3px 10px;border-radius:999px;font-size:0.8rem;}
 
   .qr-print{
     display:flex;flex-direction:column;align-items:center;gap:8px;
@@ -397,6 +406,11 @@
 
   <section id="tab-stats" style="display:none;">
     <div class="card">
+      <div class="section-title">🏆 Ranking de puntaje</div>
+      <p class="section-hint">Puntos acumulados por llegar puntual (más puntos), dentro del margen de tolerancia (menos puntos), o tarde.</p>
+      <div id="rankingList"></div>
+    </div>
+    <div class="card">
       <div class="section-title">Asistencia por curso (hoy)</div>
       <div class="chart-box"><canvas id="chartCurso"></canvas></div>
     </div>
@@ -426,6 +440,22 @@
         <button class="btn gold" id="saveReportSettingsBtn" style="flex:1;">Guardar</button>
         <button class="btn ghost" id="sendNowBtn" style="flex:1;">Enviar informe ahora</button>
       </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">🏆 Sistema de puntaje por puntualidad</div>
+      <p class="section-hint">Cada alumno acumula puntos según la hora de llegada respecto al inicio de clases.</p>
+      <label>Hora de inicio de clases</label>
+      <input type="time" id="horaInicio" value="08:00">
+      <label>Minutos de tolerancia después del inicio</label>
+      <input type="text" id="minutosTolerancia" placeholder="15">
+      <label>Puntos si llega puntual (a la hora o antes)</label>
+      <input type="text" id="puntosPuntual" placeholder="10">
+      <label>Puntos si llega dentro de la tolerancia</label>
+      <input type="text" id="puntosTolerancia" placeholder="5">
+      <label>Puntos si llega después de la tolerancia</label>
+      <input type="text" id="puntosTarde" placeholder="0">
+      <button class="btn gold sm" id="saveScoreSettingsBtn" style="margin-top:12px;">Guardar configuración de puntaje</button>
     </div>
 
     <div class="card">
