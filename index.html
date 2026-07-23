@@ -247,6 +247,14 @@
   .rank-pos{font-weight:700;color:var(--navy);width:26px;flex-shrink:0;}
   .rank-name{flex:1;font-size:0.9rem;}
   .rank-pts{font-weight:700;color:var(--gold);background:var(--navy);padding:3px 10px;border-radius:999px;font-size:0.8rem;}
+  .qr-fullscreen{
+    position:fixed;inset:0;z-index:600;background:white;
+    display:flex;align-items:center;justify-content:center;padding:20px;
+  }
+  .qr-fullscreen-inner{text-align:center;max-width:95vw;}
+  .qr-fullscreen-inner img{max-width:90vw;height:auto;image-rendering:pixelated;}
+  .qr-fullscreen-name{font-weight:700;color:var(--navy);font-size:1.2rem;margin-top:14px;}
+  .qr-fullscreen-hint{color:#777;font-size:0.85rem;margin:6px 0 18px;}
 
   .qr-print{
     display:flex;flex-direction:column;align-items:center;gap:8px;
@@ -456,6 +464,22 @@
       <label>Puntos si llega después de la tolerancia</label>
       <input type="text" id="puntosTarde" placeholder="0">
       <button class="btn gold sm" id="saveScoreSettingsBtn" style="margin-top:12px;">Guardar configuración de puntaje</button>
+    </div>
+
+    <div class="card">
+      <div class="section-title">🚨 Alerta automática de inasistencia</div>
+      <p class="section-hint">
+        Todos los días, a la hora que definas, la plataforma revisa qué alumnos NO registraron
+        asistencia y avisa automáticamente a su apoderado (por correo y/o WhatsApp, según lo
+        configurado en la ficha de cada alumno), pidiendo que justifique la inasistencia. No
+        necesita que ningún computador tenga la app abierta: corre directo en Google.
+      </p>
+      <label>Hora de revisión de inasistencias</label>
+      <input type="time" id="horaRevisionInasistencia" value="13:00">
+      <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;">
+        <button class="btn gold" id="saveAbsenceSettingsBtn" style="flex:1;">Guardar</button>
+        <button class="btn ghost" id="sendAbsenceCheckNowBtn" style="flex:1;">Probar ahora</button>
+      </div>
     </div>
 
     <div class="card">
