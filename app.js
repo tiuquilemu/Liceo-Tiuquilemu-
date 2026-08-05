@@ -1008,10 +1008,10 @@ document.getElementById('descargarReporteCursoBtn').addEventListener('click', as
     const byteNumbers = new Array(byteChars.length);
     for(let i=0;i<byteChars.length;i++) byteNumbers[i] = byteChars.charCodeAt(i);
     const byteArray = new Uint8Array(byteNumbers);
-    const blob = new Blob([byteArray], { type: 'application/pdf' });   // <-- corregido
+    const blob = new Blob([byteArray], { type: 'application/pdf' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = result.nombreArchivo || 'reporte.pdf';              // <-- corregido
+    link.download = result.nombreArchivo || 'reporte.pdf';
     link.click();
     showToast('Reporte descargado');
   }catch(e){
@@ -1020,6 +1020,7 @@ document.getElementById('descargarReporteCursoBtn').addEventListener('click', as
   btn.textContent = textoOriginal;
   btn.disabled = false;
 });
+
 // ================= Estadísticas =================
 function renderRanking(){
   const box = document.getElementById('rankingList');
