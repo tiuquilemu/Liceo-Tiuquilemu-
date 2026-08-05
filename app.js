@@ -1004,10 +1004,29 @@ document.getElementById('descargarReporteCursoBtn').addEventListener('click', as
   btn.disabled = true;
   try{
     const result = await apiPostWithRetry({ type:'generar_reporte_curso', params: opts });
+    if(!result.base64 || result.base64.length < 100){
+      showToast('El servidor no devolvió un archivo válido (respuesta vacía o muy pequeña). Revisa el registro de ejecuciones en Apps Script.', true);
+      console.error('Respuesta sin base64 válido:', result);
+      btn.textContent = textoOriginal;
+      btn.disabled = false;
+      return;
+    }
     const byteChars = atob(result.base64);
     const byteNumbers = new Array(byteChars.length);
     for(let i=0;i<byteChars.length;i++) byteNumbers[i] = byteChars.charCodeAt(i);
     const byteArray = new Uint8Array(byteNumbers);
+
+    // Un PDF válido siempre empieza con los bytes "%PDF". Si no es así, avisamos
+    // en vez de descargar en silencio un archivo que después no se puede abrir.
+    const firma = String.fromCharCode(byteArray[0], byteArray[1], byteArray[2], byteArray[3]);
+    console.log('Tamaño del archivo recibido:', byteArray.length, 'bytes. Firma:', firma);
+    if(firma !== '%PDF'){
+      showToast(`El archivo recibido no es un PDF válido (empieza con "${firma}" en vez de "%PDF"). Es probable que el Code.gs en Apps Script no tenga la última versión con la implementación en PDF — revisa que hayas hecho "Nueva versión" después de pegar el código.`, true);
+      btn.textContent = textoOriginal;
+      btn.disabled = false;
+      return;
+    }
+
     const blob = new Blob([byteArray], { type: 'application/pdf' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
