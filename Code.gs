@@ -217,8 +217,7 @@ function enviarInformeDiario_(){
   tempHoja.appendRow(['RUT','Nombre','Curso','Fecha','Hora','Canal de notificación']);
   registros.forEach(r => tempHoja.appendRow([r.rut, r.nombre, r.curso, r.fecha, r.hora, r.canal]));
 
-  const blobExcel = DriveApp.getFileById(tempSS.getId()).getAs(MimeType.MICROSOFT_EXCEL);
-  MailApp.sendEmail({
+  const blobPdf = DriveApp.getFileById(tempSS.getId()).getAs(MimeType.PDF);
     to: destinatarios,
     subject: 'Informe de asistencia - ' + hoy + ' - ' + (cfg.schoolName || ''),
     body: 'Adjunto el informe de asistencia del día ' + hoy + '. Total de registros: ' + registros.length + '.',
