@@ -8,8 +8,7 @@ let state = {
     schoolName: 'Liceo Tiuquilemu',
     adminPasswordHash: '',
     userPasswordHash: '',
-    emailDireccion: '',
-    emailInspectoria: '',
+    correosInforme: 'inspectoria@liceotiuquilemu.cl,informatica@liceotiuquilemu.cl,Patricio.duran@liceotiuquilemu.cl,liceotiuquilemu@sleppunillacordillera.cl',
     horaEnvio: '18:00',
     horaInicio: '08:00',
     minutosTolerancia: 15,
@@ -339,8 +338,7 @@ function renderHeader(){
 }
 function renderSettingsFields(){
   document.getElementById('schoolNameInput').value = state.config.schoolName || '';
-  document.getElementById('emailDireccion').value = state.config.emailDireccion || '';
-  document.getElementById('emailInspectoria').value = state.config.emailInspectoria || '';
+  document.getElementById('correosInforme').value = state.config.correosInforme || '';
   document.getElementById('horaEnvio').value = state.config.horaEnvio || '18:00';
   document.getElementById('horaInicio').value = state.config.horaInicio || '08:00';
   document.getElementById('minutosTolerancia').value = state.config.minutosTolerancia != null ? state.config.minutosTolerancia : 15;
@@ -363,8 +361,7 @@ document.getElementById('saveSchoolNameBtn').addEventListener('click', async ()=
 
 document.getElementById('saveReportSettingsBtn').addEventListener('click', async ()=>{
   const cfg = {
-    emailDireccion: document.getElementById('emailDireccion').value.trim(),
-    emailInspectoria: document.getElementById('emailInspectoria').value.trim(),
+    correosInforme: document.getElementById('correosInforme').value.trim(),
     horaEnvio: document.getElementById('horaEnvio').value || '18:00'
   };
   try{
@@ -900,6 +897,130 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
   XLSX.writeFile(wb, `asistencia_${todayStr().replace(/\//g,'-')}.xlsx`);
 });
 
+// ================= Reporte de asistencia por curso =================
+document.querySelectorAll('input[name="tipoReporteCurso"]').forEach(radio=>{
+  radio.addEventListener('change', ()=>{
+    const tipo = document.querySelector('input[name="tipoReporteCurso"]:checked').value;
+    document.getElementById('filtroReporteDiario').style.display = tipo === 'diario' ? 'block' : 'none';
+    document.getElementById('filtroReporteMensual').style.display = tipo === 'mensual' ? 'block' : 'none';
+  });
+});
+
+function fechaInputToDDMMYYYY(value){
+  // value viene como 'YYYY-MM-DD' de <input type="date">
+  const [y, m, d] = value.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+function calcularReporteCurso(tipo, opts){
+  const filas = [];
+  if(tipo === 'diario'){
+    const fecha = opts.fecha;
+    const presentesHoy = new Set(
+      state.attendance.filter(r => r.fecha === fecha).map(r => cleanRut(r.rut))
+    );
+    state.students.forEach(a=>{
+      const presente = presentesHoy.has(cleanRut(a.rut));
+      filas.push({ curso: a.curso || 'Sin curso', nombre: a.nombre, rut: a.rut,
+        valor: presente ? 'Presente' : 'Ausente', esBueno: presente, puntaje: Number(a.puntaje)||0 });
+    });
+  } else {
+    const mes = opts.mes, anio = opts.anio, umbral = opts.umbral;
+    const fechasEnMes = new Set();
+    state.attendance.forEach(r=>{
+      const partes = String(r.fecha).split('/');
+      if(partes.length === 3 && parseInt(partes[1],10) === mes && parseInt(partes[2],10) === anio){
+        fechasEnMes.add(r.fecha);
+      }
+    });
+    const totalDias = fechasEnMes.size;
+    state.students.forEach(a=>{
+      let diasAsistidos = 0;
+      state.attendance.forEach(r=>{
+        if(cleanRut(r.rut) === cleanRut(a.rut) && fechasEnMes.has(r.fecha)) diasAsistidos++;
+      });
+      const pct = totalDias > 0 ? Math.round((diasAsistidos/totalDias)*1000)/10 : 0;
+      filas.push({ curso: a.curso || 'Sin curso', nombre: a.nombre, rut: a.rut,
+        valor: pct + '%', esBueno: pct >= umbral, puntaje: Number(a.puntaje)||0, totalDias });
+    });
+  }
+  filas.sort((a,b)=> (a.curso||'').localeCompare(b.curso||'') || (a.nombre||'').localeCompare(b.nombre||''));
+  return filas;
+}
+
+function renderReporteCursoEnPantalla(filas, tipo){
+  const box = document.getElementById('reporteCursoResult');
+  if(state.students.length === 0){
+    box.innerHTML = '<div class="empty">Aún no hay alumnos registrados.</div>';
+    return;
+  }
+  if(tipo === 'mensual' && filas.length && filas[0].totalDias === 0){
+    box.innerHTML = '<div class="locked-note">No hay días con asistencia registrada en ese mes todavía.</div>';
+    return;
+  }
+  let html = '';
+  let cursoActual = null;
+  filas.forEach(f=>{
+    if(f.curso !== cursoActual){
+      cursoActual = f.curso;
+      html += `<div class="curso-group-title">${escapeHtml(cursoActual)}</div>`;
+    }
+    html += `<div class="reporte-row ${f.esBueno ? 'bueno' : 'malo'}">
+      <span><b>${escapeHtml(f.nombre)}</b></span>
+      <span>${f.valor} · 🏆 ${f.puntaje} pts</span>
+    </div>`;
+  });
+  box.innerHTML = html;
+}
+
+function leerOpcionesReporteCurso(){
+  const tipo = document.querySelector('input[name="tipoReporteCurso"]:checked').value;
+  const umbral = parseFloat(document.getElementById('umbralReporteCurso').value) || 85;
+  if(tipo === 'diario'){
+    const valorFecha = document.getElementById('fechaReporteCurso').value;
+    if(!valorFecha){ showToast('Elige una fecha', true); return null; }
+    return { tipo, fecha: fechaInputToDDMMYYYY(valorFecha), umbral };
+  } else {
+    const valorMes = document.getElementById('mesReporteCurso').value; // 'YYYY-MM'
+    if(!valorMes){ showToast('Elige un mes', true); return null; }
+    const [anio, mes] = valorMes.split('-').map(n=>parseInt(n,10));
+    return { tipo, mes, anio, umbral };
+  }
+}
+
+document.getElementById('verReporteCursoBtn').addEventListener('click', ()=>{
+  const opts = leerOpcionesReporteCurso();
+  if(!opts) return;
+  const filas = calcularReporteCurso(opts.tipo, opts);
+  renderReporteCursoEnPantalla(filas, opts.tipo);
+});
+
+document.getElementById('descargarReporteCursoBtn').addEventListener('click', async ()=>{
+  const opts = leerOpcionesReporteCurso();
+  if(!opts) return;
+  const btn = document.getElementById('descargarReporteCursoBtn');
+  const textoOriginal = btn.textContent;
+  btn.textContent = 'Generando...';
+  btn.disabled = true;
+  try{
+    const result = await apiPostWithRetry({ type:'generar_reporte_curso', params: opts });
+    const byteChars = atob(result.base64);
+    const byteNumbers = new Array(byteChars.length);
+    for(let i=0;i<byteChars.length;i++) byteNumbers[i] = byteChars.charCodeAt(i);
+    const byteArray = new Uint8Array(byteNumbers);
+    const blob = new Blob([byteArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = result.nombreArchivo || 'reporte.xlsx';
+    link.click();
+    showToast('Reporte descargado');
+  }catch(e){
+    showToast('No se pudo generar el reporte: ' + e.message, true);
+  }
+  btn.textContent = textoOriginal;
+  btn.disabled = false;
+});
+
 // ================= Estadísticas =================
 function renderRanking(){
   const box = document.getElementById('rankingList');
@@ -924,6 +1045,16 @@ function renderRanking(){
 
 function renderStats(){
   renderRanking();
+  const fechaInput = document.getElementById('fechaReporteCurso');
+  if(fechaInput && !fechaInput.value){
+    const now = new Date();
+    fechaInput.value = now.toISOString().slice(0,10);
+  }
+  const mesInput = document.getElementById('mesReporteCurso');
+  if(mesInput && !mesInput.value){
+    const now = new Date();
+    mesInput.value = now.toISOString().slice(0,7);
+  }
   const hoy = todayStr();
   const porCurso = {};
   state.attendance.filter(r=>r.fecha===hoy).forEach(r=>{
