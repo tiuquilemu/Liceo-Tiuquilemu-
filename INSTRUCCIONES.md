@@ -55,6 +55,7 @@ computadores que usen la plataforma leen y escriben ahí mismo.
 
 Para usarla en otro computador, repite solo el paso 3.1 y 3.2 con la misma URL de
 Google Apps Script — así todos comparten la misma información.
+que descargue los reportes estadisticos en pdf por curso mensual y diario
 
 ---
 
