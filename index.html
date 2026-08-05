@@ -255,6 +255,17 @@
   .qr-fullscreen-inner img{max-width:90vw;height:auto;image-rendering:pixelated;}
   .qr-fullscreen-name{font-weight:700;color:var(--navy);font-size:1.2rem;margin-top:14px;}
   .qr-fullscreen-hint{color:#777;font-size:0.85rem;margin:6px 0 18px;}
+  .curso-group-title{
+    font-weight:700;color:var(--navy);background:var(--cream);
+    padding:8px 10px;border-radius:6px;margin:14px 0 6px;font-size:0.88rem;
+  }
+  .reporte-row{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:8px 10px;border-radius:6px;margin-bottom:4px;font-size:0.86rem;
+  }
+  .reporte-row.bueno{background:#c6efce;color:#0f3d1f;}
+  .reporte-row.malo{background:#f4c7c3;color:#5c1410;}
+  .reporte-row b{font-weight:700;}
 
   .qr-print{
     display:flex;flex-direction:column;align-items:center;gap:8px;
@@ -414,6 +425,29 @@
 
   <section id="tab-stats" style="display:none;">
     <div class="card">
+      <div class="section-title">📚 Reporte de asistencia por curso</div>
+      <p class="section-hint">Marca en verde a quienes tienen buena asistencia y en rojo a quienes están bajo el umbral definido.</p>
+      <div class="radio-group">
+        <label><input type="radio" name="tipoReporteCurso" value="diario" checked> Diario</label>
+        <label><input type="radio" name="tipoReporteCurso" value="mensual"> Mensual</label>
+      </div>
+      <div id="filtroReporteDiario">
+        <label>Fecha</label>
+        <input type="date" id="fechaReporteCurso">
+      </div>
+      <div id="filtroReporteMensual" style="display:none;">
+        <label>Mes</label>
+        <input type="month" id="mesReporteCurso">
+      </div>
+      <label>Umbral de buena asistencia (%) — solo aplica al reporte mensual</label>
+      <input type="text" id="umbralReporteCurso" placeholder="85" value="85">
+      <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;">
+        <button class="btn gold" id="verReporteCursoBtn" style="flex:1;">Ver en pantalla</button>
+        <button class="btn ghost" id="descargarReporteCursoBtn" style="flex:1;">Descargar Excel con colores</button>
+      </div>
+      <div id="reporteCursoResult" style="margin-top:14px;"></div>
+    </div>
+    <div class="card">
       <div class="section-title">🏆 Ranking de puntaje</div>
       <p class="section-hint">Puntos acumulados por llegar puntual (más puntos), dentro del margen de tolerancia (menos puntos), o tarde.</p>
       <div id="rankingList"></div>
@@ -438,10 +472,9 @@
 
     <div class="card">
       <div class="section-title">Informe automático a Dirección e Inspectoría</div>
-      <label>Correo de Dirección</label>
-      <input type="email" id="emailDireccion" placeholder="direccion@colegio.cl">
-      <label>Correo de Inspectoría</label>
-      <input type="email" id="emailInspectoria" placeholder="inspectoria@colegio.cl">
+      <label>Correos que reciben el informe diario (separados por coma)</label>
+      <input type="text" id="correosInforme" placeholder="correo1@liceotiuquilemu.cl, correo2@liceotiuquilemu.cl">
+      <div class="field-hint">Puedes agregar o quitar correos cuando quieras, separados por coma.</div>
       <label>Hora de envío diario del informe</label>
       <input type="time" id="horaEnvio" value="18:00">
       <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;">
