@@ -140,7 +140,6 @@ function showSetupOverlay(prefillError){
 }
 
 // ================= Pantalla de bienvenida =================
-document.getElementById('welcomeLogoImg').src = DEFAULT_LOGO;
 
 document.getElementById('welcomeScanBtn').addEventListener('click', ()=>{
   tabDestinoInicial = 'scan';
