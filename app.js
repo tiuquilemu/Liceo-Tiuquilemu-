@@ -34,6 +34,7 @@ let pendingCount = 0;
 let chartCurso = null;
 let chartSemana = null;
 let scanMode = 'camera';
+let tabDestinoInicial = 'scan';
 
 const isModalOpen = () => document.getElementById('modalRoot').innerHTML.trim() !== '';
 
@@ -138,6 +139,23 @@ function showSetupOverlay(prefillError){
   });
 }
 
+// ================= Pantalla de bienvenida =================
+document.getElementById('welcomeLogoImg').src = DEFAULT_LOGO;
+
+document.getElementById('welcomeScanBtn').addEventListener('click', ()=>{
+  tabDestinoInicial = 'scan';
+  document.getElementById('welcomeScreen').style.display = 'none';
+});
+document.getElementById('welcomeReportsBtn').addEventListener('click', ()=>{
+  tabDestinoInicial = 'stats';
+  document.getElementById('welcomeScreen').style.display = 'none';
+});
+
+function irATabInicial(){
+  const boton = document.querySelector(`.tab-btn[data-tab="${tabDestinoInicial}"]`);
+  if(boton) boton.click();
+}
+
 async function bootAfterConnected(){
   try{
     const data = await apiGet();
@@ -227,6 +245,7 @@ function showLoginOverlay(){
         document.getElementById('loginOverlay').style.display = 'none';
         renderRoleUI();
         renderStudents();
+        irATabInicial();
         showToast('Acceso configurado. Sesión de administrador iniciada.');
       }catch(e){
         showToast('No se pudo guardar la clave: ' + e.message, true);
@@ -251,6 +270,7 @@ function showLoginOverlay(){
         document.getElementById('loginOverlay').style.display = 'none';
         renderRoleUI();
         renderStudents();
+        irATabInicial();
         showToast('Sesión de administrador iniciada');
       } else if(state.config.userPasswordHash && hash === state.config.userPasswordHash){
         sessionAdmin = false;
@@ -258,6 +278,7 @@ function showLoginOverlay(){
         document.getElementById('loginOverlay').style.display = 'none';
         renderRoleUI();
         renderStudents();
+        irATabInicial();
         showToast('Sesión de usuario común iniciada');
       } else {
         document.getElementById('loginError').innerHTML = '<div class="locked-note">Clave incorrecta. Intenta de nuevo.</div>';
