@@ -321,9 +321,44 @@
   }
   .login-card h2{color:var(--navy);margin:0 0 6px;font-size:1.3rem;}
   .login-card p{color:#666;font-size:0.85rem;margin:0 0 16px;}
+
+  .welcome-screen{
+    position:fixed;inset:0;z-index:800;
+    background:linear-gradient(160deg,rgba(11,37,69,0.90),rgba(19,49,92,0.88) 55%,rgba(28,61,110,0.92));
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;padding:32px 20px;
+  }
+  #welcomeLogoBox{
+    width:120px;height:120px;border-radius:20px;background:var(--cream);
+    display:flex;align-items:center;justify-content:center;padding:12px;
+    box-shadow:0 10px 30px rgba(0,0,0,0.35);border:2px solid var(--gold);
+    margin-bottom:22px;
+  }
+  #welcomeLogoBox img{width:100%;height:100%;object-fit:contain;border-radius:12px;}
+  .welcome-title{
+    color:white;font-family:'Space Grotesk',sans-serif;font-weight:700;
+    font-size:1.7rem;max-width:520px;margin:0 0 8px;line-height:1.25;
+  }
+  .welcome-subtitle{
+    color:var(--gold-light);font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+    font-size:0.95rem;margin-bottom:34px;
+  }
+  .welcome-buttons{display:flex;flex-direction:column;gap:12px;width:100%;max-width:320px;}
+  .welcome-buttons .btn{width:100%;padding:14px 18px;font-size:0.98rem;}
+  .welcome-btn-ghost{background:rgba(255,255,255,0.08);color:white;border-color:rgba(255,255,255,0.5);}
 </style>
 </head>
 <body>
+
+<div class="welcome-screen" id="welcomeScreen">
+  <div id="welcomeLogoBox"><img id="welcomeLogoImg" src="" alt="Escudo Liceo Tiuquilemu"></div>
+  <h1 class="welcome-title">Bienvenido al Sistema de Asistencia QR</h1>
+  <div class="welcome-subtitle">Liceo Tiuquilemu</div>
+  <div class="welcome-buttons">
+    <button class="btn gold" id="welcomeScanBtn">📷 Escanear asistencia</button>
+    <button class="btn ghost welcome-btn-ghost" id="welcomeReportsBtn">📊 Ver reportes</button>
+  </div>
+</div>
 
 <div class="login-overlay" id="setupOverlay" style="display:none;">
   <div class="login-card" id="setupCard"></div>
