@@ -34,6 +34,10 @@ let pendingCount = 0;
 let chartCurso = null;
 let chartSemana = null;
 let scanMode = 'camera';
+const QR_SCAN_CONFIRMATIONS = 1;
+const QR_SCAN_COOLDOWN_MS = 1200;
+const QR_SCAN_MAX_WIDTH = 960;
+let scanProcessing = false;
 let tabDestinoInicial = 'scan';
 
 const isModalOpen = () => document.getElementById('modalRoot').innerHTML.trim() !== '';
@@ -739,7 +743,13 @@ document.getElementById('stopScanBtn').addEventListener('click', stopScanner);
 async function startScanner(){
   if(state.students.length === 0){ showToast('Primero agrega alumnos en la pestaña "Alumnos"', true); return; }
   try{
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      }
+    });
   }catch(e){
     showToast('No se pudo acceder a la cámara. Revisa los permisos.', true);
     return;
@@ -751,8 +761,17 @@ async function startScanner(){
   document.getElementById('startScanBtn').style.display = 'none';
   document.getElementById('stopScanBtn').style.display = 'inline-block';
   scanning = true;
+  pendingCode = null;
+  pendingCount = 0;
+  scanProcessing = false;
   const track = stream.getVideoTracks()[0];
   if(track){
+    try{
+      const capabilities = track.getCapabilities?.();
+      if(capabilities?.focusMode?.includes('continuous')){
+        await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+      }
+    }catch(e){ console.debug('Enfoque continuo no disponible:', e); }
     track.onended = () => {
       if(scanning){
         showToast('Se perdió la conexión con la cámara.', true);
@@ -777,20 +796,24 @@ function scanLoop(){
   try{
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
-    if(video.readyState === video.HAVE_ENOUGH_DATA){
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext('2d');
+    if(video.readyState === video.HAVE_ENOUGH_DATA && !scanProcessing){
+      const scale = Math.min(1, QR_SCAN_MAX_WIDTH / video.videoWidth);
+      canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+      canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
       if(code && code.data){
         if(code.data === pendingCode){ pendingCount++; } else { pendingCode = code.data; pendingCount = 1; }
         const now = Date.now();
-        if(pendingCount >= 2 && now - lastScanTime > 2500){
+        if(pendingCount >= QR_SCAN_CONFIRMATIONS && now - lastScanTime > QR_SCAN_COOLDOWN_MS){
           lastScanTime = now;
           pendingCount = 0;
-          handleScan(code.data);
+          scanProcessing = true;
+          Promise.resolve(handleScan(code.data))
+            .catch(e => console.error('Error procesando el código QR:', e))
+            .finally(() => { scanProcessing = false; });
         }
       } else { pendingCode = null; pendingCount = 0; }
     }
