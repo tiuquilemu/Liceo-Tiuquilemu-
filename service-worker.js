@@ -1,7 +1,7 @@
 // Cachea el "cascarón" de la app (HTML, JS, íconos, librerías) para que abra rápido
 // e incluso si la conexión es mala. Los DATOS (alumnos, asistencia) siempre se piden
 // en vivo al Google Apps Script, nunca se sirven desde este caché.
-const CACHE_NAME = 'asistencia-qr-shell-v13';
+const CACHE_NAME = 'asistencia-qr-shell-v14';
 const SHELL_FILES = [
   './',
   './index.html',
