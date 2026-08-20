@@ -1406,17 +1406,40 @@ window.resetPuntaje = resetPuntaje;
   }
 })();
 
+// ================= Actualización automática en todos los equipos =================
+const APP_VERSION = '17';
+let serviceWorkerUpdateInProgress = false;
+
+async function ensureLatestAppVersion(){
+  if(!('serviceWorker' in navigator) || serviceWorkerUpdateInProgress) return;
+  serviceWorkerUpdateInProgress = true;
+  try{
+    const registration = await navigator.serviceWorker.register(
+      'service-worker.js?v=' + APP_VERSION,
+      { updateViaCache:'none' }
+    );
+    await registration.update();
+  }catch(e){
+    // Sin conexión: continúa con la versión guardada y reintenta al volver.
+  }finally{
+    serviceWorkerUpdateInProgress = false;
+  }
+}
+
 if('serviceWorker' in navigator){
-  let reloadingForNewVersion = false;
   navigator.serviceWorker.addEventListener('controllerchange', ()=>{
-    if(reloadingForNewVersion) return;
-    reloadingForNewVersion = true;
+    const guardKey = 'asistenciaQR_reloaded_' + APP_VERSION;
+    if(sessionStorage.getItem(guardKey) === '1') return;
+    sessionStorage.setItem(guardKey, '1');
     window.location.reload();
   });
-  window.addEventListener('load', ()=>{
-    navigator.serviceWorker
-      .register('service-worker.js?v=16', { updateViaCache:'none' })
-      .then(registration=>registration.update())
-      .catch(()=>{});
+
+  window.addEventListener('load', ensureLatestAppVersion);
+  window.addEventListener('focus', ensureLatestAppVersion);
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState === 'visible') ensureLatestAppVersion();
   });
+
+  // Mantener abierta la plataforma durante horas también recibe actualizaciones.
+  setInterval(ensureLatestAppVersion, 30 * 60 * 1000);
 }
