@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Asistencia QR — Liceo Tiuquilemu</title>
 <meta name="theme-color" content="#0b2545">
 <link rel="manifest" href="manifest.webmanifest">
@@ -13,7 +16,7 @@
 <script src="vendor/qrcode-generator.js"></script>
 <script src="vendor/jsQR.js"></script>
 <script src="vendor/chart.umd.min.js"></script>
-<script src="vendor/xlsx.full.min.js"></script>
+<script src="vendor/xlsx-js-style.min.js?v=16"></script>
 <style>
   :root{
     --navy:#0b2545;
@@ -448,7 +451,7 @@
       </div>
       <div class="search-bar">
         <input type="text" id="historySearch" placeholder="Buscar por nombre, RUT o curso...">
-        <button class="btn ghost" id="exportBtn">Descargar Excel</button>
+        <button class="btn ghost" id="exportBtn">Descargar Excel desde 20/08/2026</button>
       </div>
       <div style="overflow-x:auto;">
         <table id="historyTable">
@@ -593,6 +596,6 @@
 <div id="modalRoot"></div>
 <div id="toastRoot"></div>
 
-<script src="app.js"></script>
+<script src="app.js?v=16"></script>
 </body>
 </html>
