@@ -1089,19 +1089,28 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
     right:{ style:'thin', color:{ rgb:'B7C3D0' } }
   };
 
-  if(ws.A1){
-    ws.A1.s = {
-      font:{ bold:true, sz:16, color:{ rgb:'FFFFFF' } },
-      fill:{ patternType:'solid', fgColor:{ rgb:'0B2545' } },
-      alignment:{ horizontal:'center', vertical:'center' }
-    };
-  }
-  if(ws.A2){
-    ws.A2.s = {
-      font:{ bold:true, color:{ rgb:'0B2545' } },
-      fill:{ patternType:'solid', fgColor:{ rgb:'E7EDF4' } },
-      alignment:{ horizontal:'center', vertical:'center' }
-    };
+  const titleStyle = {
+    font:{ bold:true, sz:16, color:{ rgb:'FFFFFF' } },
+    fill:{ patternType:'solid', fgColor:{ rgb:'0B2545' } },
+    alignment:{ horizontal:'center', vertical:'center' },
+    border
+  };
+  const subtitleStyle = {
+    font:{ bold:true, color:{ rgb:'0B2545' } },
+    fill:{ patternType:'solid', fgColor:{ rgb:'E7EDF4' } },
+    alignment:{ horizontal:'center', vertical:'center' },
+    border
+  };
+
+  // Aplicar el estilo a todas las celdas que forman los títulos combinados.
+  // Así Excel pinta el ancho completo de A:F, no solamente la celda A.
+  for(let col = 0; col < headers.length; col++){
+    const titleRef = XLSX.utils.encode_cell({ r:0, c:col });
+    const subtitleRef = XLSX.utils.encode_cell({ r:1, c:col });
+    if(!ws[titleRef]) ws[titleRef] = { t:'s', v:'' };
+    if(!ws[subtitleRef]) ws[subtitleRef] = { t:'s', v:'' };
+    ws[titleRef].s = titleStyle;
+    ws[subtitleRef].s = subtitleStyle;
   }
 
   for(let col = 0; col < headers.length; col++){
@@ -1130,6 +1139,7 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
     if(dateCell && dateCell.v instanceof Date){
       dateCell.t = 'd';
       dateCell.z = 'dd/mm/yyyy';
+      dateCell.s = Object.assign({}, dateCell.s || {}, { numFmt:'dd/mm/yyyy' });
     }
   }
 
@@ -1397,7 +1407,16 @@ window.resetPuntaje = resetPuntaje;
 })();
 
 if('serviceWorker' in navigator){
+  let reloadingForNewVersion = false;
+  navigator.serviceWorker.addEventListener('controllerchange', ()=>{
+    if(reloadingForNewVersion) return;
+    reloadingForNewVersion = true;
+    window.location.reload();
+  });
   window.addEventListener('load', ()=>{
-    navigator.serviceWorker.register('service-worker.js').catch(()=>{});
+    navigator.serviceWorker
+      .register('service-worker.js?v=16', { updateViaCache:'none' })
+      .then(registration=>registration.update())
+      .catch(()=>{});
   });
 }
