@@ -164,7 +164,7 @@ async function bootAfterConnected(){
     const data = await apiGet();
     state.config = Object.assign({}, state.config, data.config || {});
     state.students = data.students || [];
-    state.attendance = data.attendance || [];
+    state.attendance = (data.attendance || []).map(normalizeAttendanceRecord);
     lastSyncFailed = false;
   }catch(e){
     lastSyncFailed = true;
@@ -321,10 +321,103 @@ function validarRut(rutSucio){
   let dvEsperado = resto === 11 ? '0' : (resto === 10 ? 'K' : String(resto));
   return dvEsperado === dv;
 }
-function todayStr(){ return new Date().toLocaleDateString('es-CL'); }
+// Inicio oficial del historial acumulativo que se incluye en Excel.
+// Se mantiene fijo para que cada descarga futura conserve todos los registros
+// tomados desde el 20 de agosto de 2026 en adelante.
+const ATTENDANCE_EXPORT_START_ISO = '2026-08-20';
+
+function pad2DatePart(value){
+  return String(value).padStart(2, '0');
+}
+
+function createSafeLocalDate(year, month, day){
+  const y = Number(year);
+  const m = Number(month);
+  const d = Number(day);
+  if(!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d)) return null;
+  const date = new Date(y, m - 1, d, 12, 0, 0, 0);
+  if(date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return null;
+  return date;
+}
+
+function parseAttendanceDate(value, fallbackTimestamp){
+  if(value instanceof Date && !isNaN(value.getTime())){
+    return createSafeLocalDate(value.getFullYear(), value.getMonth() + 1, value.getDate());
+  }
+
+  const raw = String(value === undefined || value === null ? '' : value).trim();
+  let match = raw.match(/^(\d{4})[\/.\-](\d{1,2})[\/.\-](\d{1,2})(?:[T\s].*)?$/);
+  if(match){
+    const parsedIso = createSafeLocalDate(match[1], match[2], match[3]);
+    if(parsedIso) return parsedIso;
+  }
+
+  match = raw.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})$/);
+  if(match){
+    const parsedDmy = createSafeLocalDate(match[3], match[2], match[1]);
+    if(parsedDmy) return parsedDmy;
+  }
+
+  const cleanText = raw.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const monthNumbers = {
+    ene:1, enero:1, feb:2, febrero:2, mar:3, marzo:3, abr:4, abril:4,
+    may:5, mayo:5, jun:6, junio:6, jul:7, julio:7, ago:8, agosto:8,
+    sep:9, sept:9, septiembre:9, oct:10, octubre:10,
+    nov:11, noviembre:11, dic:12, diciembre:12
+  };
+  match = cleanText.match(/^(\d{1,2})\s+(?:de\s+)?([a-z]+)\s+(?:de\s+)?(\d{4})$/);
+  if(match && monthNumbers[match[2]]){
+    const parsedText = createSafeLocalDate(match[3], monthNumbers[match[2]], match[1]);
+    if(parsedText) return parsedText;
+  }
+
+  if(raw){
+    const nativeDate = new Date(raw);
+    if(!isNaN(nativeDate.getTime())){
+      return createSafeLocalDate(nativeDate.getFullYear(), nativeDate.getMonth() + 1, nativeDate.getDate());
+    }
+  }
+
+  const timestamp = Number(fallbackTimestamp);
+  if(Number.isFinite(timestamp) && timestamp > 0){
+    const fallback = new Date(timestamp);
+    if(!isNaN(fallback.getTime())){
+      return createSafeLocalDate(fallback.getFullYear(), fallback.getMonth() + 1, fallback.getDate());
+    }
+  }
+  return null;
+}
+
+function formatDateDMY(date){
+  if(!(date instanceof Date) || isNaN(date.getTime())) return '';
+  return `${pad2DatePart(date.getDate())}/${pad2DatePart(date.getMonth() + 1)}/${date.getFullYear()}`;
+}
+
+function attendanceDateKey(record){
+  const date = parseAttendanceDate(record && record.fecha, record && record.timestamp);
+  return date ? (date.getFullYear() * 10000 + (date.getMonth() + 1) * 100 + date.getDate()) : null;
+}
+
+function normalizeAttendanceRecord(record){
+  const normalized = Object.assign({}, record || {});
+  const date = parseAttendanceDate(normalized.fecha, normalized.timestamp);
+  if(date) normalized.fecha = formatDateDMY(date);
+  return normalized;
+}
+
+function excelDateForRecord(record){
+  const date = parseAttendanceDate(record && record.fecha, record && record.timestamp);
+  return date ? new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0) : '';
+}
+
+function todayStr(){
+  return formatDateDMY(new Date());
+}
 function dateStrDaysAgo(n){
-  const d = new Date(); d.setDate(d.getDate() - n);
-  return d.toLocaleDateString('es-CL');
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
+  d.setDate(d.getDate() - n);
+  return formatDateDMY(d);
 }
 function timeStr(){ return new Date().toLocaleTimeString('es-CL', {hour:'2-digit', minute:'2-digit'}); }
 
@@ -929,15 +1022,134 @@ function renderHistory(){
 document.getElementById('historySearch').addEventListener('input', renderHistory);
 
 document.getElementById('exportBtn').addEventListener('click', ()=>{
-  if(state.attendance.length === 0){ showToast('No hay registros para exportar', true); return; }
-  const rows = state.attendance.map(r=>({
-    Nombre: r.nombre, RUT: formatRut(r.rut), Curso: r.curso || '', Fecha: r.fecha, Hora: r.hora,
-    Notificacion: r.canal || 'simulado'
-  }));
-  const ws = XLSX.utils.json_to_sheet(rows);
+  const startDate = parseAttendanceDate(ATTENDANCE_EXPORT_START_ISO);
+  const startKey = startDate.getFullYear() * 10000 + (startDate.getMonth() + 1) * 100 + startDate.getDate();
+  const startText = formatDateDMY(startDate);
+
+  const records = state.attendance
+    .map(normalizeAttendanceRecord)
+    .filter(record=>{
+      const key = attendanceDateKey(record);
+      return key !== null && key >= startKey;
+    })
+    .sort((a, b)=>{
+      const dateDifference = attendanceDateKey(a) - attendanceDateKey(b);
+      if(dateDifference !== 0) return dateDifference;
+      return String(a.hora || '').localeCompare(String(b.hora || ''));
+    });
+
+  if(records.length === 0){
+    showToast(`No hay registros de asistencia desde el ${startText}`, true);
+    return;
+  }
+
+  const endText = records[records.length - 1].fecha;
+  const schoolName = state.config.schoolName || 'Liceo Tiuquilemu';
+  const headers = ['Nombre', 'RUT', 'Curso', 'Fecha', 'Hora', 'Notificación'];
+  const tableRows = records.map(record=>[
+    record.nombre || '',
+    formatRut(record.rut),
+    record.curso || '',
+    excelDateForRecord(record),
+    String(record.hora || ''),
+    record.canal || 'Solo registrado'
+  ]);
+
+  const sheetRows = [
+    [`ASISTENCIA — ${schoolName}`],
+    [`Desde: ${startText}  |  Hasta: ${endText}  |  Total de registros: ${records.length}`],
+    [],
+    headers,
+    ...tableRows
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet(sheetRows, { cellDates: true });
+  const lastRow = 4 + tableRows.length;
+
+  ws['!merges'] = [
+    { s:{ r:0, c:0 }, e:{ r:0, c:5 } },
+    { s:{ r:1, c:0 }, e:{ r:1, c:5 } }
+  ];
+  ws['!cols'] = [
+    { wch:34 }, // Nombre
+    { wch:16 }, // RUT
+    { wch:16 }, // Curso
+    { wch:13 }, // Fecha completa
+    { wch:10 }, // Hora
+    { wch:24 }  // Notificación
+  ];
+  ws['!rows'] = [{ hpt:26 }, { hpt:20 }, { hpt:8 }, { hpt:23 }];
+  ws['!autofilter'] = { ref: `A4:F${lastRow}` };
+  ws['!freeze'] = { xSplit:0, ySplit:4, topLeftCell:'A5', activePane:'bottomLeft', state:'frozen' };
+
+  const border = {
+    top:{ style:'thin', color:{ rgb:'B7C3D0' } },
+    bottom:{ style:'thin', color:{ rgb:'B7C3D0' } },
+    left:{ style:'thin', color:{ rgb:'B7C3D0' } },
+    right:{ style:'thin', color:{ rgb:'B7C3D0' } }
+  };
+
+  if(ws.A1){
+    ws.A1.s = {
+      font:{ bold:true, sz:16, color:{ rgb:'FFFFFF' } },
+      fill:{ patternType:'solid', fgColor:{ rgb:'0B2545' } },
+      alignment:{ horizontal:'center', vertical:'center' }
+    };
+  }
+  if(ws.A2){
+    ws.A2.s = {
+      font:{ bold:true, color:{ rgb:'0B2545' } },
+      fill:{ patternType:'solid', fgColor:{ rgb:'E7EDF4' } },
+      alignment:{ horizontal:'center', vertical:'center' }
+    };
+  }
+
+  for(let col = 0; col < headers.length; col++){
+    const headerCell = ws[XLSX.utils.encode_cell({ r:3, c:col })];
+    if(headerCell){
+      headerCell.s = {
+        font:{ bold:true, color:{ rgb:'FFFFFF' } },
+        fill:{ patternType:'solid', fgColor:{ rgb:'C9A227' } },
+        alignment:{ horizontal:'center', vertical:'center' },
+        border
+      };
+    }
+  }
+
+  for(let row = 4; row < lastRow; row++){
+    for(let col = 0; col < headers.length; col++){
+      const cell = ws[XLSX.utils.encode_cell({ r:row, c:col })];
+      if(!cell) continue;
+      cell.s = {
+        fill:{ patternType:'solid', fgColor:{ rgb:row % 2 === 0 ? 'FFFFFF' : 'F4F7FA' } },
+        alignment:{ vertical:'center', horizontal:(col === 3 || col === 4) ? 'center' : 'left' },
+        border
+      };
+    }
+    const dateCell = ws[XLSX.utils.encode_cell({ r:row, c:3 })];
+    if(dateCell && dateCell.v instanceof Date){
+      dateCell.t = 'd';
+      dateCell.z = 'dd/mm/yyyy';
+    }
+  }
+
   const wb = XLSX.utils.book_new();
+  wb.Props = {
+    Title: `Asistencia desde ${startText}`,
+    Subject: 'Registro de asistencia QR',
+    Author: schoolName,
+    CreatedDate: new Date()
+  };
   XLSX.utils.book_append_sheet(wb, ws, 'Asistencia');
-  XLSX.writeFile(wb, `asistencia_${todayStr().replace(/\//g,'-')}.xlsx`);
+
+  const filename = `Asistencia_${startText.replace(/\//g, '-')}_al_${endText.replace(/\//g, '-')}.xlsx`;
+  XLSX.writeFile(wb, filename, {
+    bookType:'xlsx',
+    compression:true,
+    cellDates:true,
+    cellStyles:true
+  });
+  showToast(`Excel generado con ${records.length} registros desde el ${startText}`);
 });
 
 // ================= Reporte de asistencia por curso =================
@@ -1155,7 +1367,7 @@ function startPolling(){
       const data = await apiGet();
       state.config = Object.assign({}, state.config, data.config || {});
       state.students = data.students || [];
-      state.attendance = data.attendance || [];
+      state.attendance = (data.attendance || []).map(normalizeAttendanceRecord);
       lastSyncFailed = false;
       renderHeader();
       renderStudents();
