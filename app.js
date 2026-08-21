@@ -165,6 +165,7 @@ async function bootAfterConnected(){
     state.config = Object.assign({}, state.config, data.config || {});
     state.students = data.students || [];
     state.attendance = (data.attendance || []).map(normalizeAttendanceRecord);
+    recalculateAttendanceScores();
     lastSyncFailed = false;
   }catch(e){
     lastSyncFailed = true;
@@ -421,19 +422,139 @@ function dateStrDaysAgo(n){
 }
 function timeStr(){ return new Date().toLocaleTimeString('es-CL', {hour:'2-digit', minute:'2-digit'}); }
 
-function minutosDesdeMedianoche(hhmm){
-  const partes = String(hhmm || '00:00').split(':');
-  return (parseInt(partes[0],10)||0) * 60 + (parseInt(partes[1],10)||0);
+function numeroConfigurado(value, fallback){
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
-function calcularPuntosLocal(horaLlegada){
-  const cfg = state.config;
+
+function minutosDesdeMedianoche(value){
+  const raw = String(value === undefined || value === null ? '' : value)
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\u00a0/g, ' ');
+  const match = raw.match(/(\d{1,2})\s*[:.]\s*(\d{1,2})/);
+  if(!match) return null;
+
+  let hour = Number(match[1]);
+  const minute = Number(match[2]);
+  const isPm = /p\.?\s*m\.?/.test(raw);
+  const isAm = /a\.?\s*m\.?/.test(raw);
+
+  if(isPm && hour < 12) hour += 12;
+  if(isAm && hour === 12) hour = 0;
+  if(!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59){
+    return null;
+  }
+  return hour * 60 + minute;
+}
+
+function evaluarLlegada(horaLlegada, config){
+  const cfg = config || state.config || {};
   const llegada = minutosDesdeMedianoche(horaLlegada);
   const inicio = minutosDesdeMedianoche(cfg.horaInicio || '08:00');
-  const tolerancia = parseInt(cfg.minutosTolerancia, 10) || 15;
-  if(llegada <= inicio) return parseInt(cfg.puntosPuntual, 10) || 0;
-  if(llegada <= inicio + tolerancia) return parseInt(cfg.puntosTolerancia, 10) || 0;
-  return parseInt(cfg.puntosTarde, 10) || 0;
+  if(llegada === null || inicio === null){
+    return { puntos:0, estado:'Hora no válida', categoria:'sin-hora' };
+  }
+
+  const tolerancia = Math.max(0, Math.trunc(numeroConfigurado(cfg.minutosTolerancia, 15)));
+  if(llegada <= inicio){
+    return {
+      puntos:Math.max(0, Math.trunc(numeroConfigurado(cfg.puntosPuntual, 10))),
+      estado:'Puntual',
+      categoria:'puntual'
+    };
+  }
+  if(llegada <= inicio + tolerancia){
+    return {
+      puntos:Math.max(0, Math.trunc(numeroConfigurado(cfg.puntosTolerancia, 5))),
+      estado:'Dentro de tolerancia',
+      categoria:'tolerancia'
+    };
+  }
+  return {
+    puntos:Math.max(0, Math.trunc(numeroConfigurado(cfg.puntosTarde, 0))),
+    estado:'Atrasado',
+    categoria:'tarde'
+  };
 }
+
+function calcularPuntosLocal(horaLlegada){
+  return evaluarLlegada(horaLlegada).puntos;
+}
+
+function compareAttendanceChronologically(a, b){
+  const dateA = attendanceDateKey(a);
+  const dateB = attendanceDateKey(b);
+  if(dateA !== dateB) return (dateA === null ? Number.MAX_SAFE_INTEGER : dateA) - (dateB === null ? Number.MAX_SAFE_INTEGER : dateB);
+
+  const timeA = minutosDesdeMedianoche(a && a.hora);
+  const timeB = minutosDesdeMedianoche(b && b.hora);
+  if(timeA !== timeB) return (timeA === null ? Number.MAX_SAFE_INTEGER : timeA) - (timeB === null ? Number.MAX_SAFE_INTEGER : timeB);
+
+  return (Number(a && a.timestamp) || 0) - (Number(b && b.timestamp) || 0);
+}
+
+// Recalcula siempre desde el historial compartido. Así todos los computadores
+// muestran el mismo total aunque el servidor no guarde una columna de puntaje.
+// Solo la primera llegada de cada alumno en el día obtiene puntos.
+function recalculateAttendanceScores(){
+  const startDate = parseAttendanceDate(ATTENDANCE_EXPORT_START_ISO);
+  const startKey = startDate
+    ? startDate.getFullYear() * 10000 + (startDate.getMonth() + 1) * 100 + startDate.getDate()
+    : 0;
+  const normalized = (state.attendance || []).map(normalizeAttendanceRecord);
+  const chronological = [...normalized].sort(compareAttendanceChronologically);
+  const scoredDays = new Set();
+  const totalsByRut = new Map();
+
+  chronological.forEach(record=>{
+    const rut = cleanRut(record.rut);
+    const dateKey = attendanceDateKey(record);
+    const evaluation = evaluarLlegada(record.hora);
+    let points = 0;
+    let status = evaluation.estado;
+    let category = evaluation.categoria;
+
+    if(!rut || dateKey === null){
+      status = 'Registro incompleto';
+      category = 'sin-hora';
+    } else if(dateKey < startKey){
+      status = 'Anterior al periodo';
+      category = 'fuera-periodo';
+    } else {
+      const studentDayKey = rut + '|' + dateKey;
+      if(scoredDays.has(studentDayKey)){
+        status = 'Duplicado (sin puntaje)';
+        category = 'duplicado';
+      } else {
+        scoredDays.add(studentDayKey);
+        points = evaluation.puntos;
+      }
+    }
+
+    const accumulated = (totalsByRut.get(rut) || 0) + points;
+    totalsByRut.set(rut, accumulated);
+    record.puntos = points;
+    record.puntosObtenidos = points;
+    record.estadoPuntualidad = status;
+    record.categoriaPuntaje = category;
+    record.puntajeAcumulado = accumulated;
+  });
+
+  state.attendance = normalized;
+  (state.students || []).forEach(student=>{
+    student.puntaje = totalsByRut.get(cleanRut(student.rut)) || 0;
+  });
+}
+
+function scoreStatusClass(record){
+  const allowed = ['puntual', 'tolerancia', 'tarde', 'duplicado', 'sin-hora', 'fuera-periodo'];
+  const category = record && allowed.includes(record.categoriaPuntaje) ? record.categoriaPuntaje : 'sin-hora';
+  return 'history-state ' + category;
+}
+
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
 function escapeHtml(str){
   return (str||'').toString().replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -505,8 +626,13 @@ document.getElementById('saveScoreSettingsBtn').addEventListener('click', async 
   };
   try{
     const result = await apiPostWithRetry({ type:'save_config', config: cfg });
-    state.config = Object.assign({}, state.config, result.config);
-    showToast('Configuración de puntaje guardada');
+    state.config = Object.assign({}, state.config, (result && result.config) || cfg);
+    recalculateAttendanceScores();
+    renderStudents();
+    renderHistory();
+    const statsTab = document.getElementById('tab-stats');
+    if(statsTab && statsTab.style.display !== 'none') renderStats();
+    showToast('Configuración de puntaje guardada y totales recalculados');
   }catch(e){ showToast('No se pudo guardar: ' + e.message, true); }
 });
 
@@ -967,29 +1093,38 @@ async function handleScan(rawValue){
   if(canal.length === 0) canal.push('simulado');
 
   const horaActual = timeStr();
+  const arrivalScore = evaluarLlegada(horaActual);
   const record = {
     id: uid(), rut: student.rut, nombre: student.nombre, curso: student.curso,
-    fecha: todayStr(), hora: horaActual, timestamp: Date.now(), canal: canal.join(', ')
+    fecha: todayStr(), hora: horaActual, timestamp: Date.now(), canal: canal.join(', '),
+    puntos: arrivalScore.puntos,
+    puntosObtenidos: arrivalScore.puntos,
+    estadoPuntualidad: arrivalScore.estado,
+    categoriaPuntaje: arrivalScore.categoria
   };
   state.attendance.unshift(record);
+  recalculateAttendanceScores();
+  let scoredRecord = state.attendance.find(item=>item.id === record.id) || record;
   renderHistory();
-
-  // Puntaje estimado localmente para feedback inmediato; se confirma con el
-  // valor real que calcula el servidor (fuente de verdad única).
-  let puntosGanados = calcularPuntosLocal(horaActual);
-  try{
-    const result = await apiPostWithRetry({ type:'add_attendance', record });
-    if(result && typeof result.puntos === 'number') puntosGanados = result.puntos;
-  }catch(e){ /* ya se avisó del reintento en apiPostWithRetry */ }
-  student.puntaje = (Number(student.puntaje) || 0) + puntosGanados;
   renderStudents();
+
+  // Se envían también los campos calculados. El total se reconstruye desde el
+  // historial después de cada sincronización, por lo que coincide en todos los equipos.
+  try{
+    await apiPostWithRetry({ type:'add_attendance', record: scoredRecord });
+  }catch(e){ /* ya se avisó del reintento en apiPostWithRetry */ }
+
+  scoredRecord = state.attendance.find(item=>item.id === record.id) || scoredRecord;
+  const puntosGanados = Number(scoredRecord.puntosObtenidos) || 0;
+  const estadoLlegada = scoredRecord.estadoPuntualidad || arrivalScore.estado;
+  const totalAlumno = Number(student.puntaje) || 0;
 
   const badges = canal.map(c=>{
     if(c==='correo') return '<span class="result-badge">✉️ Correo enviado</span>';
     if(c==='whatsapp') return '<span class="result-badge">💬 WhatsApp enviado</span>';
     return '<span class="result-badge">Solo registrado (sin canal configurado)</span>';
   }).join('');
-  const puntosBadge = `<span class="result-badge">🏆 +${puntosGanados} puntos (total: ${student.puntaje})</span>`;
+  const puntosBadge = `<span class="result-badge">🏆 +${puntosGanados} puntos · ${escapeHtml(estadoLlegada)} (total: ${totalAlumno})</span>`;
 
   area.innerHTML = `<div class="result-card"><div class="result-name">${escapeHtml(student.nombre)}</div>
     <div class="result-row"><span>Curso</span><span>${escapeHtml(student.curso||'-')}</span></div>
@@ -1006,37 +1141,45 @@ async function handleScan(rawValue){
 function renderHistory(){
   const tbody = document.querySelector('#historyTable tbody');
   const q = (document.getElementById('historySearch').value || '').toLowerCase();
-  const filtered = state.attendance.filter(r=>{
-    return !q || r.nombre.toLowerCase().includes(q) || cleanRut(r.rut).toLowerCase().includes(q.replace(/[.\-\s]/g,'')) || (r.curso||'').toLowerCase().includes(q);
+  const filtered = state.attendance.filter(record=>{
+    const name = String(record.nombre || '').toLowerCase();
+    const rut = cleanRut(record.rut).toLowerCase();
+    const course = String(record.curso || '').toLowerCase();
+    return !q || name.includes(q) || rut.includes(q.replace(/[.\-\s]/g,'')) || course.includes(q);
   });
   if(filtered.length === 0){
-    tbody.innerHTML = `<tr><td colspan="5" class="empty">${state.attendance.length===0 ? 'Aún no hay registros de asistencia.' : 'Sin resultados.'}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty">${state.attendance.length===0 ? 'Aún no hay registros de asistencia.' : 'Sin resultados.'}</td></tr>`;
   } else {
-    tbody.innerHTML = filtered.map(r=>`
-      <tr><td>${escapeHtml(r.nombre)}</td><td>${escapeHtml(r.curso||'-')}</td><td>${r.fecha}</td><td>${r.hora}</td><td>${r.canal||'simulado'}</td></tr>
+    tbody.innerHTML = filtered.map(record=>`
+      <tr>
+        <td>${escapeHtml(record.nombre || '')}</td>
+        <td>${escapeHtml(record.curso || '-')}</td>
+        <td>${escapeHtml(record.fecha || '')}</td>
+        <td>${escapeHtml(record.hora || '')}</td>
+        <td><span class="${scoreStatusClass(record)}">${escapeHtml(record.estadoPuntualidad || 'Sin calcular')}</span></td>
+        <td><span class="history-points">${Number(record.puntosObtenidos) || 0}</span></td>
+        <td>${escapeHtml(record.canal || 'simulado')}</td>
+      </tr>
     `).join('');
   }
   document.getElementById('statTotal').textContent = state.attendance.length;
-  document.getElementById('statToday').textContent = state.attendance.filter(r=>r.fecha===todayStr()).length;
+  document.getElementById('statToday').textContent = state.attendance.filter(record=>record.fecha===todayStr()).length;
 }
 document.getElementById('historySearch').addEventListener('input', renderHistory);
 
 document.getElementById('exportBtn').addEventListener('click', ()=>{
+  recalculateAttendanceScores();
+
   const startDate = parseAttendanceDate(ATTENDANCE_EXPORT_START_ISO);
   const startKey = startDate.getFullYear() * 10000 + (startDate.getMonth() + 1) * 100 + startDate.getDate();
   const startText = formatDateDMY(startDate);
 
   const records = state.attendance
-    .map(normalizeAttendanceRecord)
     .filter(record=>{
       const key = attendanceDateKey(record);
       return key !== null && key >= startKey;
     })
-    .sort((a, b)=>{
-      const dateDifference = attendanceDateKey(a) - attendanceDateKey(b);
-      if(dateDifference !== 0) return dateDifference;
-      return String(a.hora || '').localeCompare(String(b.hora || ''));
-    });
+    .sort(compareAttendanceChronologically);
 
   if(records.length === 0){
     showToast(`No hay registros de asistencia desde el ${startText}`, true);
@@ -1045,41 +1188,58 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
 
   const endText = records[records.length - 1].fecha;
   const schoolName = state.config.schoolName || 'Liceo Tiuquilemu';
-  const headers = ['Nombre', 'RUT', 'Curso', 'Fecha', 'Hora', 'Notificación'];
+  const totalPoints = records.reduce((total, record)=>total + (Number(record.puntosObtenidos) || 0), 0);
+  const headers = [
+    'Nombre',
+    'RUT',
+    'Curso',
+    'Fecha',
+    'Hora',
+    'Estado de llegada',
+    'Puntaje obtenido',
+    'Puntaje acumulado',
+    'Notificación'
+  ];
   const tableRows = records.map(record=>[
     record.nombre || '',
     formatRut(record.rut),
     record.curso || '',
     excelDateForRecord(record),
     String(record.hora || ''),
+    record.estadoPuntualidad || 'Sin calcular',
+    Number(record.puntosObtenidos) || 0,
+    Number(record.puntajeAcumulado) || 0,
     record.canal || 'Solo registrado'
   ]);
 
   const sheetRows = [
     [`ASISTENCIA — ${schoolName}`],
-    [`Desde: ${startText}  |  Hasta: ${endText}  |  Total de registros: ${records.length}`],
+    [`Desde: ${startText}  |  Hasta: ${endText}  |  Registros: ${records.length}  |  Puntos otorgados: ${totalPoints}`],
     [],
     headers,
     ...tableRows
   ];
 
-  const ws = XLSX.utils.aoa_to_sheet(sheetRows, { cellDates: true });
+  const ws = XLSX.utils.aoa_to_sheet(sheetRows, { cellDates:true });
   const lastRow = 4 + tableRows.length;
 
   ws['!merges'] = [
-    { s:{ r:0, c:0 }, e:{ r:0, c:5 } },
-    { s:{ r:1, c:0 }, e:{ r:1, c:5 } }
+    { s:{ r:0, c:0 }, e:{ r:0, c:8 } },
+    { s:{ r:1, c:0 }, e:{ r:1, c:8 } }
   ];
   ws['!cols'] = [
-    { wch:34 }, // Nombre
-    { wch:16 }, // RUT
-    { wch:16 }, // Curso
-    { wch:13 }, // Fecha completa
-    { wch:10 }, // Hora
-    { wch:24 }  // Notificación
+    { wch:34 },
+    { wch:16 },
+    { wch:16 },
+    { wch:13 },
+    { wch:12 },
+    { wch:24 },
+    { wch:18 },
+    { wch:20 },
+    { wch:24 }
   ];
   ws['!rows'] = [{ hpt:26 }, { hpt:20 }, { hpt:8 }, { hpt:23 }];
-  ws['!autofilter'] = { ref: `A4:F${lastRow}` };
+  ws['!autofilter'] = { ref:`A4:I${lastRow}` };
   ws['!freeze'] = { xSplit:0, ySplit:4, topLeftCell:'A5', activePane:'bottomLeft', state:'frozen' };
 
   const border = {
@@ -1088,7 +1248,6 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
     left:{ style:'thin', color:{ rgb:'B7C3D0' } },
     right:{ style:'thin', color:{ rgb:'B7C3D0' } }
   };
-
   const titleStyle = {
     font:{ bold:true, sz:16, color:{ rgb:'FFFFFF' } },
     fill:{ patternType:'solid', fgColor:{ rgb:'0B2545' } },
@@ -1102,8 +1261,6 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
     border
   };
 
-  // Aplicar el estilo a todas las celdas que forman los títulos combinados.
-  // Así Excel pinta el ancho completo de A:F, no solamente la celda A.
   for(let col = 0; col < headers.length; col++){
     const titleRef = XLSX.utils.encode_cell({ r:0, c:col });
     const subtitleRef = XLSX.utils.encode_cell({ r:1, c:col });
@@ -1111,55 +1268,90 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
     if(!ws[subtitleRef]) ws[subtitleRef] = { t:'s', v:'' };
     ws[titleRef].s = titleStyle;
     ws[subtitleRef].s = subtitleStyle;
-  }
 
-  for(let col = 0; col < headers.length; col++){
     const headerCell = ws[XLSX.utils.encode_cell({ r:3, c:col })];
     if(headerCell){
       headerCell.s = {
         font:{ bold:true, color:{ rgb:'FFFFFF' } },
         fill:{ patternType:'solid', fgColor:{ rgb:'C9A227' } },
-        alignment:{ horizontal:'center', vertical:'center' },
+        alignment:{ horizontal:'center', vertical:'center', wrapText:true },
         border
       };
     }
   }
 
+  const statusColors = {
+    puntual:'C6EFCE',
+    tolerancia:'FFF2CC',
+    tarde:'F4C7C3',
+    duplicado:'E7E6E6',
+    'sin-hora':'E7E6E6',
+    'fuera-periodo':'E7E6E6'
+  };
+
   for(let row = 4; row < lastRow; row++){
+    const sourceRecord = records[row - 4];
     for(let col = 0; col < headers.length; col++){
       const cell = ws[XLSX.utils.encode_cell({ r:row, c:col })];
       if(!cell) continue;
       cell.s = {
         fill:{ patternType:'solid', fgColor:{ rgb:row % 2 === 0 ? 'FFFFFF' : 'F4F7FA' } },
-        alignment:{ vertical:'center', horizontal:(col === 3 || col === 4) ? 'center' : 'left' },
+        alignment:{
+          vertical:'center',
+          horizontal:(col >= 3 && col <= 7) ? 'center' : 'left',
+          wrapText:col === 5 || col === 8
+        },
         border
       };
     }
+
     const dateCell = ws[XLSX.utils.encode_cell({ r:row, c:3 })];
     if(dateCell && dateCell.v instanceof Date){
       dateCell.t = 'd';
       dateCell.z = 'dd/mm/yyyy';
       dateCell.s = Object.assign({}, dateCell.s || {}, { numFmt:'dd/mm/yyyy' });
     }
+
+    [6, 7].forEach(col=>{
+      const pointCell = ws[XLSX.utils.encode_cell({ r:row, c:col })];
+      if(pointCell){
+        pointCell.t = 'n';
+        pointCell.z = '0';
+        pointCell.s = Object.assign({}, pointCell.s || {}, {
+          numFmt:'0',
+          font:{ bold:true, color:{ rgb:'0B2545' } }
+        });
+      }
+    });
+
+    const statusFill = statusColors[sourceRecord.categoriaPuntaje] || 'E7E6E6';
+    [5, 6].forEach(col=>{
+      const scoreCell = ws[XLSX.utils.encode_cell({ r:row, c:col })];
+      if(scoreCell){
+        scoreCell.s = Object.assign({}, scoreCell.s || {}, {
+          fill:{ patternType:'solid', fgColor:{ rgb:statusFill } }
+        });
+      }
+    });
   }
 
   const wb = XLSX.utils.book_new();
   wb.Props = {
-    Title: `Asistencia desde ${startText}`,
-    Subject: 'Registro de asistencia QR',
-    Author: schoolName,
-    CreatedDate: new Date()
+    Title:`Asistencia y puntajes desde ${startText}`,
+    Subject:'Registro de asistencia QR con puntaje automático',
+    Author:schoolName,
+    CreatedDate:new Date()
   };
   XLSX.utils.book_append_sheet(wb, ws, 'Asistencia');
 
-  const filename = `Asistencia_${startText.replace(/\//g, '-')}_al_${endText.replace(/\//g, '-')}.xlsx`;
+  const filename = `Asistencia_Puntajes_${startText.replace(/\//g, '-')}_al_${endText.replace(/\//g, '-')}.xlsx`;
   XLSX.writeFile(wb, filename, {
     bookType:'xlsx',
     compression:true,
     cellDates:true,
     cellStyles:true
   });
-  showToast(`Excel generado con ${records.length} registros desde el ${startText}`);
+  showToast(`Excel generado con ${records.length} registros y ${totalPoints} puntos desde el ${startText}`);
 });
 
 // ================= Reporte de asistencia por curso =================
@@ -1378,6 +1570,7 @@ function startPolling(){
       state.config = Object.assign({}, state.config, data.config || {});
       state.students = data.students || [];
       state.attendance = (data.attendance || []).map(normalizeAttendanceRecord);
+      recalculateAttendanceScores();
       lastSyncFailed = false;
       renderHeader();
       renderStudents();
@@ -1407,7 +1600,7 @@ window.resetPuntaje = resetPuntaje;
 })();
 
 // ================= Actualización automática en todos los equipos =================
-const APP_VERSION = '17';
+const APP_VERSION = '18';
 let serviceWorkerUpdateInProgress = false;
 
 async function ensureLatestAppVersion(){
