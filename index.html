@@ -8,7 +8,7 @@
 <meta http-equiv="Expires" content="0">
 <script>
 (function(){
-  const version = '17';
+  const version = '18';
   window.ASISTENCIA_APP_VERSION = version;
   try{
     const storageKey = 'asistenciaQR_build';
@@ -29,7 +29,7 @@
 </script>
 <title>Asistencia QR — Liceo Tiuquilemu</title>
 <meta name="theme-color" content="#0b2545">
-<link rel="manifest" href="manifest.webmanifest?v=17">
+<link rel="manifest" href="manifest.webmanifest?v=18">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -37,7 +37,7 @@
 <script src="vendor/qrcode-generator.js"></script>
 <script src="vendor/jsQR.js"></script>
 <script src="vendor/chart.umd.min.js"></script>
-<script src="vendor/xlsx-js-style.min.js?v=17"></script>
+<script src="vendor/xlsx-js-style.min.js?v=18"></script>
 <style>
   :root{
     --navy:#0b2545;
@@ -264,6 +264,18 @@
     background:var(--cream);color:var(--navy);margin-right:4px;border:1px solid #e2ddc8;
   }
   .score-chip{background:var(--gold);color:var(--navy);border-color:var(--gold);font-weight:700;}
+  .history-state{
+    display:inline-block;padding:3px 8px;border-radius:999px;font-size:0.72rem;
+    font-weight:700;white-space:nowrap;
+  }
+  .history-state.puntual{background:#c6efce;color:#0f3d1f;}
+  .history-state.tolerancia{background:#fff2cc;color:#6b5600;}
+  .history-state.tarde{background:#f4c7c3;color:#5c1410;}
+  .history-state.duplicado,.history-state.sin-hora,.history-state.fuera-periodo{background:#e7e6e6;color:#555;}
+  .history-points{
+    display:inline-block;min-width:30px;text-align:center;font-weight:800;
+    color:var(--navy);background:var(--cream);border:1px solid #e2ddc8;border-radius:999px;padding:3px 8px;
+  }
   .rank-row{
     display:flex;align-items:center;justify-content:space-between;
     padding:9px 0;border-bottom:1px solid #eee;
@@ -398,7 +410,7 @@
   <div>
     <div class="school-name" id="headerSchoolName">Liceo Tiuquilemu</div>
     <div class="school-sub">Sistema de asistencia QR</div>
-    <div class="sync-indicator" id="syncIndicator"><span class="sync-dot" id="syncDot"></span><span id="syncText">Conectando...</span><span class="version-badge" id="appVersionBadge">Versión 17</span></div>
+    <div class="sync-indicator" id="syncIndicator"><span class="sync-dot" id="syncDot"></span><span id="syncText">Conectando...</span><span class="version-badge" id="appVersionBadge">Versión 18</span></div>
     <button class="role-btn" id="roleBtn">Cerrar sesión</button>
   </div>
   <div id="logoImg"><img id="headerLogoImg" src="" alt="Escudo Liceo Tiuquilemu"></div>
@@ -477,7 +489,7 @@
       </div>
       <div style="overflow-x:auto;">
         <table id="historyTable">
-          <thead><tr><th>Alumno</th><th>Curso</th><th>Fecha</th><th>Hora</th><th>Notificación</th></tr></thead>
+          <thead><tr><th>Alumno</th><th>Curso</th><th>Fecha</th><th>Hora</th><th>Estado</th><th>Puntos</th><th>Notificación</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -618,6 +630,6 @@
 <div id="modalRoot"></div>
 <div id="toastRoot"></div>
 
-<script src="app.js?v=17"></script>
+<script src="app.js?v=18"></script>
 </body>
 </html>
