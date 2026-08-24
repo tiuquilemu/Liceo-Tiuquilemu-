@@ -5,6 +5,7 @@ const DEVICE_ID_KEY = 'asistenciaQR_deviceId';
 const DEVICE_NAME_KEY = 'asistenciaQR_deviceName';
 const DEVICE_FIRST_SEEN_KEY = 'asistenciaQR_deviceFirstSeen';
 const DEVICE_LAST_SENT_KEY = 'asistenciaQR_deviceLastSent';
+const TRUSTED_USER_ACCESS_KEY = 'asistenciaQR_trustedUserAccess';
 const DEVICE_CONFIG_PREFIX = 'equipoUso_';
 const DEVICE_HEARTBEAT_MS = 6 * 60 * 60 * 1000;
 let deviceHeartbeatBusy = false;
@@ -185,7 +186,11 @@ async function bootAfterConnected(){
   renderStudents();
   renderHistory();
   updateSyncIndicator();
-  showLoginOverlay();
+  if(hasTrustedCommonAccess()){
+    openCommonSession(true);
+  } else {
+    showLoginOverlay();
+  }
   startPolling();
 }
 
@@ -196,15 +201,40 @@ async function hashPassword(text){
   return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2,'0')).join('');
 }
 
+function currentAccessSignature(){
+  return String(state.config.userPasswordHash || state.config.adminPasswordHash || '');
+}
+
+function rememberCommonAccess(){
+  const signature = currentAccessSignature();
+  if(signature) localStorage.setItem(TRUSTED_USER_ACCESS_KEY, signature);
+}
+
+function hasTrustedCommonAccess(){
+  const signature = currentAccessSignature();
+  return !!signature && localStorage.getItem(TRUSTED_USER_ACCESS_KEY) === signature;
+}
+
+function openCommonSession(silent){
+  sessionAdmin = false;
+  sessionLoggedIn = true;
+  document.getElementById('loginOverlay').style.display = 'none';
+  renderRoleUI();
+  renderStudents();
+  irATabInicial();
+  registerDeviceUsage(false);
+  if(!silent) showToast('Acceso de usuario común recordado en este equipo');
+}
+
 function renderRoleUI(){
   const btn = document.getElementById('roleBtn');
   const settingsBtn = document.getElementById('settingsTabBtn');
   if(sessionAdmin){
-    btn.textContent = '🔓 Administrador — Cerrar sesión';
+    btn.textContent = '🔓 Administrador — Cambiar acceso';
     btn.classList.add('admin');
     settingsBtn.style.display = 'inline-block';
   } else {
-    btn.textContent = '👤 Usuario común — Cerrar sesión';
+    btn.textContent = '👤 Usuario común — Cambiar acceso';
     btn.classList.remove('admin');
     settingsBtn.style.display = 'none';
     if(document.getElementById('tab-settings').style.display !== 'none'){
@@ -214,6 +244,7 @@ function renderRoleUI(){
 }
 
 document.getElementById('roleBtn').addEventListener('click', ()=>{
+  localStorage.removeItem(TRUSTED_USER_ACCESS_KEY);
   sessionAdmin = false;
   sessionLoggedIn = false;
   showLoginOverlay();
@@ -253,6 +284,7 @@ function showLoginOverlay(){
       try{
         const result = await apiPostWithRetry({ type:'save_config', config: newCfg });
         state.config = Object.assign({}, state.config, result.config);
+        rememberCommonAccess();
         sessionAdmin = true;
         sessionLoggedIn = true;
         document.getElementById('loginOverlay').style.display = 'none';
@@ -268,8 +300,8 @@ function showLoginOverlay(){
   } else {
     card.innerHTML = `
       <h2>Ingresar a la plataforma</h2>
-      <p>Ingresa tu clave. La clave de administrador da acceso completo; la clave de usuario común permite
-      escanear, ver datos y agregar alumnos.</p>
+      <p>Ingresa tu clave una sola vez en este PC. Después la plataforma recordará el acceso de usuario común.
+      La clave de administrador se seguirá pidiendo para entrar a Ajustes o realizar cambios sensibles.</p>
       <label>Clave</label>
       <input type="password" id="loginPassword" autocomplete="current-password">
       <button class="btn gold" id="loginEnterBtn" style="width:100%;margin-top:16px;">Entrar</button>
@@ -279,6 +311,7 @@ function showLoginOverlay(){
       const pass = document.getElementById('loginPassword').value;
       const hash = await hashPassword(pass);
       if(hash === state.config.adminPasswordHash){
+        rememberCommonAccess();
         sessionAdmin = true;
         sessionLoggedIn = true;
         document.getElementById('loginOverlay').style.display = 'none';
@@ -288,14 +321,8 @@ function showLoginOverlay(){
         registerDeviceUsage(false);
         showToast('Sesión de administrador iniciada');
       } else if(state.config.userPasswordHash && hash === state.config.userPasswordHash){
-        sessionAdmin = false;
-        sessionLoggedIn = true;
-        document.getElementById('loginOverlay').style.display = 'none';
-        renderRoleUI();
-        renderStudents();
-        irATabInicial();
-        registerDeviceUsage(false);
-        showToast('Sesión de usuario común iniciada');
+        rememberCommonAccess();
+        openCommonSession(false);
       } else {
         document.getElementById('loginError').innerHTML = '<div class="locked-note">Clave incorrecta. Intenta de nuevo.</div>';
       }
@@ -633,7 +660,7 @@ function buildDeviceUsageRecord(){
     nombre:getDeviceName(),
     sistema:detectDeviceSystem(),
     navegador:detectDeviceBrowser(),
-    version:String(window.ASISTENCIA_APP_VERSION || '20'),
+    version:String(window.ASISTENCIA_APP_VERSION || '21'),
     primeraConexion:firstSeen,
     ultimaConexion:nowIso
   };
@@ -675,7 +702,7 @@ function renderDevicesPanel(){
 
   const devices = registeredDevices();
   const now = Date.now();
-  const currentVersion = String(window.ASISTENCIA_APP_VERSION || '20');
+  const currentVersion = String(window.ASISTENCIA_APP_VERSION || '21');
   const usedToday = devices.filter(device=>{
     const seen = Date.parse(device.ultimaConexion || 0);
     return Number.isFinite(seen) && now - seen <= 24 * 60 * 60 * 1000;
@@ -698,7 +725,7 @@ function renderDevicesPanel(){
   }
 
   if(devices.length === 0){
-    list.innerHTML = '<div class="empty">Los equipos aparecerán aquí cuando abran e ingresen a la versión 20.</div>';
+    list.innerHTML = '<div class="empty">Los equipos aparecerán aquí cuando abran e ingresen a la versión 21.</div>';
     return;
   }
 
@@ -906,6 +933,7 @@ document.getElementById('setAdminPasswordBtn').addEventListener('click', async (
   try{
     const result = await apiPostWithRetry({ type:'save_config', config:{ adminPasswordHash: await hashPassword(p1) } });
     state.config = Object.assign({}, state.config, result.config);
+    rememberCommonAccess();
     document.getElementById('newAdminPassword').value = '';
     document.getElementById('newAdminPassword2').value = '';
     showToast('Clave de administrador actualizada');
@@ -920,6 +948,7 @@ document.getElementById('setUserPasswordBtn').addEventListener('click', async ()
   try{
     const result = await apiPostWithRetry({ type:'save_config', config:{ userPasswordHash: await hashPassword(p1) } });
     state.config = Object.assign({}, state.config, result.config);
+    rememberCommonAccess();
     document.getElementById('newUserPassword').value = '';
     document.getElementById('newUserPassword2').value = '';
     showToast('Clave de usuario común actualizada');
@@ -1847,7 +1876,7 @@ window.resetPuntaje = resetPuntaje;
 })();
 
 // ================= Actualización automática en todos los equipos =================
-const APP_VERSION = '20';
+const APP_VERSION = '21';
 let serviceWorkerUpdateInProgress = false;
 
 async function ensureLatestAppVersion(){
