@@ -8,7 +8,7 @@
 <meta http-equiv="Expires" content="0">
 <script>
 (function(){
-  const version = '18';
+  const version = '19';
   window.ASISTENCIA_APP_VERSION = version;
   try{
     const storageKey = 'asistenciaQR_build';
@@ -29,7 +29,7 @@
 </script>
 <title>Asistencia QR — Liceo Tiuquilemu</title>
 <meta name="theme-color" content="#0b2545">
-<link rel="manifest" href="manifest.webmanifest?v=18">
+<link rel="manifest" href="manifest.webmanifest?v=19">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -37,7 +37,7 @@
 <script src="vendor/qrcode-generator.js"></script>
 <script src="vendor/jsQR.js"></script>
 <script src="vendor/chart.umd.min.js"></script>
-<script src="vendor/xlsx-js-style.min.js?v=18"></script>
+<script src="vendor/xlsx-js-style.min.js?v=19"></script>
 <style>
   :root{
     --navy:#0b2545;
@@ -276,6 +276,41 @@
     display:inline-block;min-width:30px;text-align:center;font-weight:800;
     color:var(--navy);background:var(--cream);border:1px solid #e2ddc8;border-radius:999px;padding:3px 8px;
   }
+  .device-summary{
+    display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0;
+  }
+  .device-summary-box{
+    background:var(--cream);border:1px solid #e2ddc8;border-radius:10px;
+    padding:10px;text-align:center;
+  }
+  .device-summary-box b{display:block;color:var(--navy);font-size:1.25rem;}
+  .device-summary-box span{font-size:0.7rem;color:#777;}
+  .device-list{margin-top:12px;}
+  .device-row{
+    display:flex;justify-content:space-between;align-items:center;gap:12px;
+    padding:12px 0;border-bottom:1px solid #eee;
+  }
+  .device-row:last-child{border-bottom:none;}
+  .device-main{min-width:0;}
+  .device-main b{color:var(--navy);}
+  .device-meta{font-size:0.75rem;color:#777;margin-top:3px;}
+  .device-status{display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0;}
+  .device-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;background:#999;}
+  .device-dot.today{background:#2f7d5a;box-shadow:0 0 0 3px rgba(47,125,90,.14);}
+  .device-dot.recent{background:#c9a227;}
+  .device-dot.old{background:#999;}
+  .device-activity,.device-version{
+    display:inline-block;font-size:0.68rem;padding:3px 8px;border-radius:999px;white-space:nowrap;
+  }
+  .device-activity.today{background:#c6efce;color:#0f3d1f;}
+  .device-activity.recent{background:#fff2cc;color:#6b5600;}
+  .device-activity.old{background:#e7e6e6;color:#555;}
+  .device-version.updated{background:#d9eaf7;color:#0b2545;font-weight:700;}
+  .device-version.outdated{background:#f4c7c3;color:#5c1410;font-weight:700;}
+  @media(max-width:520px){
+    .device-row{align-items:flex-start;flex-direction:column;}
+    .device-status{align-items:flex-start;flex-direction:row;flex-wrap:wrap;}
+  }
   .rank-row{
     display:flex;align-items:center;justify-content:space-between;
     padding:9px 0;border-bottom:1px solid #eee;
@@ -410,7 +445,7 @@
   <div>
     <div class="school-name" id="headerSchoolName">Liceo Tiuquilemu</div>
     <div class="school-sub">Sistema de asistencia QR</div>
-    <div class="sync-indicator" id="syncIndicator"><span class="sync-dot" id="syncDot"></span><span id="syncText">Conectando...</span><span class="version-badge" id="appVersionBadge">Versión 18</span></div>
+    <div class="sync-indicator" id="syncIndicator"><span class="sync-dot" id="syncDot"></span><span id="syncText">Conectando...</span><span class="version-badge" id="appVersionBadge">Versión 19</span></div>
     <button class="role-btn" id="roleBtn">Cerrar sesión</button>
   </div>
   <div id="logoImg"><img id="headerLogoImg" src="" alt="Escudo Liceo Tiuquilemu"></div>
@@ -544,6 +579,32 @@
     </div>
 
     <div class="card">
+      <div class="section-title">🖥️ Equipos que usan la plataforma</div>
+      <p class="section-hint">
+        Aquí puedes comprobar qué computadores o teléfonos abrieron la plataforma, qué versión usan y
+        cuándo se conectaron por última vez. El sistema no registra IP ni ubicación.
+      </p>
+      <label>Nombre de este equipo</label>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <input type="text" id="deviceNameInput" placeholder="Ej: PC Inspectoría" maxlength="60" style="flex:1;min-width:190px;">
+        <button class="btn gold sm" id="saveDeviceNameBtn">Guardar nombre</button>
+      </div>
+      <div class="field-hint">En cada PC, entra una vez como administrador y asígnale un nombre fácil de reconocer.</div>
+
+      <div class="device-summary">
+        <div class="device-summary-box"><b id="deviceCount">0</b><span>Equipos registrados</span></div>
+        <div class="device-summary-box"><b id="deviceToday">0</b><span>Usados hoy</span></div>
+        <div class="device-summary-box"><b id="deviceUpdated">0</b><span>Actualizados a v19</span></div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div class="section-hint" id="deviceTrackingMessage">La conexión se registra como máximo cada 6 horas.</div>
+        <button class="btn ghost sm" id="refreshDevicesBtn">Actualizar lista</button>
+      </div>
+      <div class="device-list" id="deviceList"></div>
+    </div>
+
+    <div class="card">
       <div class="section-title">Informe automático a Dirección e Inspectoría</div>
       <label>Correos que reciben el informe diario (separados por coma)</label>
       <input type="text" id="correosInforme" placeholder="correo1@liceotiuquilemu.cl, correo2@liceotiuquilemu.cl">
@@ -630,6 +691,6 @@
 <div id="modalRoot"></div>
 <div id="toastRoot"></div>
 
-<script src="app.js?v=18"></script>
+<script src="app.js?v=19"></script>
 </body>
 </html>
