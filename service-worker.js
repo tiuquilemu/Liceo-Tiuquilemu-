@@ -1,7 +1,7 @@
 // Actualización automática del sistema de asistencia QR.
 // Al activarse, elimina solo las cachés antiguas de esta plataforma y recarga
 // las pestañas abiertas para que todos los computadores usen la misma versión.
-const APP_VERSION = '19';
+const APP_VERSION = '20';
 const CACHE_NAME = 'asistencia-qr-shell-v' + APP_VERSION;
 const SHELL_FILES = [
   './',
