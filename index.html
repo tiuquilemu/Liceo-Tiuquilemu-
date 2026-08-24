@@ -8,7 +8,7 @@
 <meta http-equiv="Expires" content="0">
 <script>
 (function(){
-  const version = '20';
+  const version = '21';
   window.ASISTENCIA_APP_VERSION = version;
   try{
     const storageKey = 'asistenciaQR_build';
@@ -29,7 +29,7 @@
 </script>
 <title>Asistencia QR — Liceo Tiuquilemu</title>
 <meta name="theme-color" content="#0b2545">
-<link rel="manifest" href="manifest.webmanifest?v=20">
+<link rel="manifest" href="manifest.webmanifest?v=21">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -37,7 +37,7 @@
 <script src="vendor/qrcode-generator.js"></script>
 <script src="vendor/jsQR.js"></script>
 <script src="vendor/chart.umd.min.js"></script>
-<script src="vendor/xlsx-js-style.min.js?v=20"></script>
+<script src="vendor/xlsx-js-style.min.js?v=21"></script>
 <style>
   :root{
     --navy:#0b2545;
@@ -445,7 +445,7 @@
   <div>
     <div class="school-name" id="headerSchoolName">Liceo Tiuquilemu</div>
     <div class="school-sub">Sistema de asistencia QR</div>
-    <div class="sync-indicator" id="syncIndicator"><span class="sync-dot" id="syncDot"></span><span id="syncText">Conectando...</span><span class="version-badge" id="appVersionBadge">Versión 20</span></div>
+    <div class="sync-indicator" id="syncIndicator"><span class="sync-dot" id="syncDot"></span><span id="syncText">Conectando...</span><span class="version-badge" id="appVersionBadge">Versión 21</span></div>
     <button class="role-btn" id="roleBtn">Cerrar sesión</button>
   </div>
   <div id="logoImg"><img id="headerLogoImg" src="" alt="Escudo Liceo Tiuquilemu"></div>
@@ -594,7 +594,7 @@
       <div class="device-summary">
         <div class="device-summary-box"><b id="deviceCount">0</b><span>Equipos registrados</span></div>
         <div class="device-summary-box"><b id="deviceToday">0</b><span>Usados hoy</span></div>
-        <div class="device-summary-box"><b id="deviceUpdated">0</b><span>Actualizados a v20</span></div>
+        <div class="device-summary-box"><b id="deviceUpdated">0</b><span>Actualizados a v21</span></div>
       </div>
 
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
@@ -691,6 +691,6 @@
 <div id="modalRoot"></div>
 <div id="toastRoot"></div>
 
-<script src="app.js?v=20"></script>
+<script src="app.js?v=21"></script>
 </body>
 </html>
