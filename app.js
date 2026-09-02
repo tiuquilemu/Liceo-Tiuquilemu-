@@ -18,14 +18,14 @@ let state = {
     schoolName: 'Liceo Tiuquilemu',
     adminPasswordHash: '',
     userPasswordHash: '',
-    correosInforme: 'inspectoria@liceotiuquilemu.cl,informatica@liceotiuquilemu.cl,Patricio.duran@liceotiuquilemu.cl,liceotiuquilemu@sleppunillacordillera.cl',
-    horaEnvio: '18:00',
+    correosInforme: 'inspectoria@liceotiuquilemu.cl,informatica@liceotiuquilemu.cl',
+    horaEnvio: '12:00',
     horaInicio: '08:00',
     minutosTolerancia: 15,
     puntosPuntual: 10,
     puntosTolerancia: 5,
     puntosTarde: 0,
-    horaRevisionInasistencia: '13:00'
+    horaRevisionInasistencia: '12:00'
   },
   students: [],
   attendance: []
@@ -442,6 +442,7 @@ function normalizeAttendanceRecord(record){
   const normalized = Object.assign({}, record || {});
   const date = parseAttendanceDate(normalized.fecha, normalized.timestamp);
   if(date) normalized.fecha = formatDateDMY(date);
+  normalized.hora = formatTime24(normalized.hora);
   return normalized;
 }
 
@@ -459,7 +460,17 @@ function dateStrDaysAgo(n){
   d.setDate(d.getDate() - n);
   return formatDateDMY(d);
 }
-function timeStr(){ return new Date().toLocaleTimeString('es-CL', {hour:'2-digit', minute:'2-digit'}); }
+function timeStr(){
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone:'America/Santiago',
+    hour:'2-digit',
+    minute:'2-digit',
+    hourCycle:'h23'
+  }).formatToParts(new Date());
+  const values = {};
+  parts.forEach(part => { values[part.type] = part.value; });
+  return `${values.hour}:${values.minute}`;
+}
 
 function numeroConfigurado(value, fallback){
   const parsed = Number(value);
@@ -487,6 +498,12 @@ function minutosDesdeMedianoche(value){
     return null;
   }
   return hour * 60 + minute;
+}
+
+function formatTime24(value){
+  const minutes = minutosDesdeMedianoche(value);
+  if(minutes === null) return String(value === undefined || value === null ? '' : value).trim();
+  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 }
 
 function evaluarLlegada(horaLlegada, config){
@@ -660,7 +677,7 @@ function buildDeviceUsageRecord(){
     nombre:getDeviceName(),
     sistema:detectDeviceSystem(),
     navegador:detectDeviceBrowser(),
-    version:String(window.ASISTENCIA_APP_VERSION || '21'),
+    version:String(window.ASISTENCIA_APP_VERSION || '22'),
     primeraConexion:firstSeen,
     ultimaConexion:nowIso
   };
@@ -702,7 +719,7 @@ function renderDevicesPanel(){
 
   const devices = registeredDevices();
   const now = Date.now();
-  const currentVersion = String(window.ASISTENCIA_APP_VERSION || '21');
+  const currentVersion = String(window.ASISTENCIA_APP_VERSION || '22');
   const usedToday = devices.filter(device=>{
     const seen = Date.parse(device.ultimaConexion || 0);
     return Number.isFinite(seen) && now - seen <= 24 * 60 * 60 * 1000;
@@ -823,13 +840,13 @@ function renderHeader(){
 function renderSettingsFields(){
   document.getElementById('schoolNameInput').value = state.config.schoolName || '';
   document.getElementById('correosInforme').value = state.config.correosInforme || '';
-  document.getElementById('horaEnvio').value = state.config.horaEnvio || '18:00';
+  document.getElementById('horaEnvio').value = formatTime24(state.config.horaEnvio) || '12:00';
   document.getElementById('horaInicio').value = state.config.horaInicio || '08:00';
   document.getElementById('minutosTolerancia').value = state.config.minutosTolerancia != null ? state.config.minutosTolerancia : 15;
   document.getElementById('puntosPuntual').value = state.config.puntosPuntual != null ? state.config.puntosPuntual : 10;
   document.getElementById('puntosTolerancia').value = state.config.puntosTolerancia != null ? state.config.puntosTolerancia : 5;
   document.getElementById('puntosTarde').value = state.config.puntosTarde != null ? state.config.puntosTarde : 0;
-  document.getElementById('horaRevisionInasistencia').value = state.config.horaRevisionInasistencia || '13:00';
+  document.getElementById('horaRevisionInasistencia').value = formatTime24(state.config.horaRevisionInasistencia) || '12:00';
   document.getElementById('appsScriptUrlDisplay').value = APPS_SCRIPT_URL;
   const deviceNameInput = document.getElementById('deviceNameInput');
   if(deviceNameInput) deviceNameInput.value = getDeviceName();
@@ -849,7 +866,7 @@ document.getElementById('saveSchoolNameBtn').addEventListener('click', async ()=
 document.getElementById('saveReportSettingsBtn').addEventListener('click', async ()=>{
   const cfg = {
     correosInforme: document.getElementById('correosInforme').value.trim(),
-    horaEnvio: document.getElementById('horaEnvio').value || '18:00'
+    horaEnvio: document.getElementById('horaEnvio').value || '12:00'
   };
   try{
     const result = await apiPostWithRetry({ type:'save_config', config: cfg });
@@ -886,7 +903,7 @@ document.getElementById('saveScoreSettingsBtn').addEventListener('click', async 
 });
 
 document.getElementById('saveAbsenceSettingsBtn').addEventListener('click', async ()=>{
-  const cfg = { horaRevisionInasistencia: document.getElementById('horaRevisionInasistencia').value || '13:00' };
+  const cfg = { horaRevisionInasistencia: document.getElementById('horaRevisionInasistencia').value || '12:00' };
   try{
     const result = await apiPostWithRetry({ type:'save_config', config: cfg });
     state.config = Object.assign({}, state.config, result.config);
@@ -1876,7 +1893,7 @@ window.resetPuntaje = resetPuntaje;
 })();
 
 // ================= Actualización automática en todos los equipos =================
-const APP_VERSION = '21';
+const APP_VERSION = '22';
 let serviceWorkerUpdateInProgress = false;
 
 async function ensureLatestAppVersion(){
