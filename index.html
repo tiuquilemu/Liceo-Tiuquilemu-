@@ -8,7 +8,7 @@
 <meta http-equiv="Expires" content="0">
 <script>
 (function(){
-  const version = '21';
+  const version = '22';
   window.ASISTENCIA_APP_VERSION = version;
   try{
     const storageKey = 'asistenciaQR_build';
@@ -29,7 +29,7 @@
 </script>
 <title>Asistencia QR — Liceo Tiuquilemu</title>
 <meta name="theme-color" content="#0b2545">
-<link rel="manifest" href="manifest.webmanifest?v=21">
+<link rel="manifest" href="manifest.webmanifest?v=22">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -37,7 +37,7 @@
 <script src="vendor/qrcode-generator.js"></script>
 <script src="vendor/jsQR.js"></script>
 <script src="vendor/chart.umd.min.js"></script>
-<script src="vendor/xlsx-js-style.min.js?v=21"></script>
+<script src="vendor/xlsx-js-style.min.js?v=22"></script>
 <style>
   :root{
     --navy:#0b2545;
@@ -445,7 +445,7 @@
   <div>
     <div class="school-name" id="headerSchoolName">Liceo Tiuquilemu</div>
     <div class="school-sub">Sistema de asistencia QR</div>
-    <div class="sync-indicator" id="syncIndicator"><span class="sync-dot" id="syncDot"></span><span id="syncText">Conectando...</span><span class="version-badge" id="appVersionBadge">Versión 21</span></div>
+    <div class="sync-indicator" id="syncIndicator"><span class="sync-dot" id="syncDot"></span><span id="syncText">Conectando...</span><span class="version-badge" id="appVersionBadge">Versión 22</span></div>
     <button class="role-btn" id="roleBtn">Cerrar sesión</button>
   </div>
   <div id="logoImg"><img id="headerLogoImg" src="" alt="Escudo Liceo Tiuquilemu"></div>
@@ -610,7 +610,7 @@
       <input type="text" id="correosInforme" placeholder="correo1@liceotiuquilemu.cl, correo2@liceotiuquilemu.cl">
       <div class="field-hint">Puedes agregar o quitar correos cuando quieras, separados por coma.</div>
       <label>Hora de envío diario del informe</label>
-      <input type="time" id="horaEnvio" value="18:00">
+      <input type="time" id="horaEnvio" value="12:00">
       <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;">
         <button class="btn gold" id="saveReportSettingsBtn" style="flex:1;">Guardar</button>
         <button class="btn ghost" id="sendNowBtn" style="flex:1;">Enviar informe ahora</button>
@@ -642,7 +642,7 @@
         necesita que ningún computador tenga la app abierta: corre directo en Google.
       </p>
       <label>Hora de revisión de inasistencias</label>
-      <input type="time" id="horaRevisionInasistencia" value="13:00">
+      <input type="time" id="horaRevisionInasistencia" value="12:00">
       <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;">
         <button class="btn gold" id="saveAbsenceSettingsBtn" style="flex:1;">Guardar</button>
         <button class="btn ghost" id="sendAbsenceCheckNowBtn" style="flex:1;">Probar ahora</button>
@@ -691,6 +691,6 @@
 <div id="modalRoot"></div>
 <div id="toastRoot"></div>
 
-<script src="app.js?v=21"></script>
+<script src="app.js?v=22"></script>
 </body>
 </html>
