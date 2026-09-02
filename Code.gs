@@ -26,11 +26,11 @@ const CONFIG_DEFAULTS = {
   schoolName: 'Liceo Tiuquilemu',
   adminPasswordHash: '',
   userPasswordHash: '',
-  correosInforme: '',
-  emailDireccion: '',
-  emailInspectoria: '',
-  horaEnvio: '18:00',
-  horaRevisionInasistencia: '13:00',
+  correosInforme: 'inspectoria@liceotiuquilemu.cl,informatica@liceotiuquilemu.cl',
+  emailDireccion: 'informatica@liceotiuquilemu.cl',
+  emailInspectoria: 'inspectoria@liceotiuquilemu.cl',
+  horaEnvio: '12:00',
+  horaRevisionInasistencia: '12:00',
   ultimaRevisionInasistencia: ''
 };
 
@@ -234,12 +234,13 @@ function addAttendance_(record){
       hora: normalizeTime_(record.hora)
     });
     const row = Math.max(2, sheet.getLastRow() + 1);
+    // Formatear ANTES de escribir evita que Sheets convierta 02/09/2026
+    // en un número de fecha y 07:58 en una fracción de día.
+    sheet.getRange(row, ASISTENCIA_COLS.indexOf('fecha') + 1).setNumberFormat('@');
+    sheet.getRange(row, ASISTENCIA_COLS.indexOf('hora') + 1).setNumberFormat('@');
     sheet.getRange(row, 1, 1, ASISTENCIA_COLS.length).setValues([
       ASISTENCIA_COLS.map(c => normalized[c] !== undefined ? normalized[c] : '')
     ]);
-    // La fecha queda como texto. Google no puede convertirla a un número interno
-    // que luego haga aparecer como ausente a un alumno que sí marcó.
-    sheet.getRange(row, ASISTENCIA_COLS.indexOf('fecha') + 1).setNumberFormat('@');
   }finally{
     lock.releaseLock();
   }
@@ -407,7 +408,7 @@ function revisarInasistencias_(options){
 
     let notified = 0;
     absentStudents.forEach(student => {
-      if(notifyAbsence_(student, today).length) notified++;
+      if(notifyAbsence_(student, today, cfg.horaRevisionInasistencia).length) notified++;
     });
 
     setConfigValue_(
@@ -432,13 +433,14 @@ function revisarInasistencias_(options){
   }
 }
 
-function notifyAbsence_(student, dateText){
+function notifyAbsence_(student, dateText, reviewTime){
   const channels = [];
   const greeting = student.apoderadoNombre
     ? 'Estimado/a ' + student.apoderadoNombre + ':\n\n'
     : 'Estimado/a apoderado/a:\n\n';
+  const configuredTime = normalizeTime_(reviewTime) || '12:00';
   const message = greeting +
-    'A las 13:00 no se registra asistencia de ' + student.nombre +
+    'A las ' + configuredTime + ' no se registra asistencia de ' + student.nombre +
     ' (' + student.curso + ') el día ' + dateText + '. ' +
     'Si el/la estudiante se encuentra en el establecimiento, por favor ignore ' +
     'este mensaje y comuníquese con Inspectoría para revisar el registro.';
