@@ -43,7 +43,8 @@ let pendingCode = null;
 let pendingCount = 0;
 let chartCurso = null;
 let chartSemana = null;
-let scanMode = 'camera';
+const SCAN_MODE_KEY = 'asistenciaQR_scanMode';
+let scanMode = localStorage.getItem(SCAN_MODE_KEY) === 'usb' ? 'usb' : 'camera';
 const QR_SCAN_CONFIRMATIONS = 1;
 const QR_SCAN_COOLDOWN_MS = 1200;
 const QR_SCAN_MAX_WIDTH = 960;
@@ -452,7 +453,10 @@ function excelDateForRecord(record){
 }
 
 function todayStr(){
-  return formatDateDMY(new Date());
+  const parts = new Intl.DateTimeFormat('en-GB', {timeZone:'America/Santiago', day:'2-digit', month:'2-digit', year:'numeric'}).formatToParts(new Date());
+  const values = {};
+  parts.forEach(part=>{ values[part.type] = part.value; });
+  return `${values.day}/${values.month}/${values.year}`;
 }
 function dateStrDaysAgo(n){
   const d = new Date();
@@ -1213,6 +1217,7 @@ document.getElementById('modeUsbBtn').addEventListener('click', ()=>switchScanMo
 
 function switchScanMode(mode){
   scanMode = mode;
+  localStorage.setItem(SCAN_MODE_KEY, mode);
   document.getElementById('cameraPanel').style.display = mode === 'camera' ? 'block' : 'none';
   document.getElementById('usbPanel').style.display = mode === 'usb' ? 'block' : 'none';
   document.getElementById('modeCameraBtn').classList.toggle('gold', mode === 'camera');
@@ -1236,16 +1241,27 @@ function focusUsbInput(){
 }
 
 const usbInput = document.getElementById('usbInput');
-usbInput.addEventListener('keydown', (e)=>{
-  if(e.key === 'Enter'){
+let usbScanTimer = null;
+function submitUsbScan(){
+  clearTimeout(usbScanTimer);
+  const value = usbInput.value.trim();
+  usbInput.value = '';
+  if(value) Promise.resolve(handleScan(value)).catch(e=>console.error('Error procesando lector USB:', e));
+}
+usbInput.addEventListener('keydown', e=>{
+  if(e.key === 'Enter' || e.key === 'Tab'){
     e.preventDefault();
-    const value = usbInput.value.trim();
-    usbInput.value = '';
-    if(value) handleScan(value);
+    submitUsbScan();
   }
+});
+usbInput.addEventListener('input', ()=>{
+  clearTimeout(usbScanTimer);
+  // Algunos lectores no envían Enter; terminar tras una pausa breve.
+  if(usbInput.value.trim().length >= 7) usbScanTimer = setTimeout(submitUsbScan, 450);
 });
 usbInput.addEventListener('blur', ()=>{ setTimeout(focusUsbInput, 150); });
 setInterval(focusUsbInput, 1500);
+switchScanMode(scanMode);
 
 document.getElementById('startScanBtn').addEventListener('click', startScanner);
 document.getElementById('stopScanBtn').addEventListener('click', stopScanner);
@@ -1351,82 +1367,61 @@ async function handleScan(rawValue){
     return;
   }
 
-  const registroReciente = state.attendance.find(r =>
-    cleanRut(r.rut) === rut && r.fecha === todayStr() && (Date.now() - Number(r.timestamp)) < 3 * 60 * 1000
+  const registroPrevio = state.attendance.find(r =>
+    cleanRut(r.rut) === rut && normalizeAttendanceRecord(r).fecha === todayStr()
   );
-  if(registroReciente){
+  if(registroPrevio){
     area.innerHTML = `<div class="result-card" style="border-color:#c9a227;"><div class="result-name">${escapeHtml(student.nombre)}</div>
-      <div class="result-row"><span></span><span>Ya se registró su asistencia hoy a las ${registroReciente.hora}</span></div>
+      <div class="result-row"><span></span><span>Ya se registró su asistencia hoy a las ${escapeHtml(registroPrevio.hora || '')}</span></div>
       <div class="result-badge">Registro duplicado evitado</div></div>`;
-    showToast(`${student.nombre} ya fue registrado a las ${registroReciente.hora}`);
     return;
   }
 
-  const canal = [];
-  const mensaje = `${student.nombre} registró su ingreso al colegio a las ${timeStr()} del ${todayStr()}.`;
-
-  if(student.apoderadoEmail){
-    try{
-      await apiPost({ type:'notify_guardian', email: student.apoderadoEmail, nombre: student.nombre, mensaje });
-      canal.push('correo');
-    }catch(e){ /* seguimos igual, la asistencia se registra de todas formas */ }
-  }
-  if(student.callmebotApiKey){
-    const resultadoWsp = await sendCallMeBot(student.apoderadoTelefono, student.callmebotApiKey, mensaje);
-    const textoResp = (resultadoWsp && resultadoWsp.respuesta || '').toLowerCase();
-    if(textoResp.includes('error')){
-      console.warn('CallMeBot respondió con error:', resultadoWsp.respuesta);
-      showToast('WhatsApp no se pudo enviar: ' + resultadoWsp.respuesta, true);
-    } else {
-      canal.push('whatsapp');
-    }
-  }
-  if(canal.length === 0) canal.push('simulado');
-
   const horaActual = timeStr();
+  const fechaActual = todayStr();
   const arrivalScore = evaluarLlegada(horaActual);
   const record = {
     id: uid(), rut: student.rut, nombre: student.nombre, curso: student.curso,
-    fecha: todayStr(), hora: horaActual, timestamp: Date.now(), canal: canal.join(', '),
-    puntos: arrivalScore.puntos,
-    puntosObtenidos: arrivalScore.puntos,
-    estadoPuntualidad: arrivalScore.estado,
-    categoriaPuntaje: arrivalScore.categoria
+    fecha: fechaActual, hora: horaActual, timestamp: Date.now(), canal: 'pendiente',
+    puntos: arrivalScore.puntos, puntosObtenidos: arrivalScore.puntos,
+    estadoPuntualidad: arrivalScore.estado, categoriaPuntaje: arrivalScore.categoria
   };
   state.attendance.unshift(record);
   recalculateAttendanceScores();
-  let scoredRecord = state.attendance.find(item=>item.id === record.id) || record;
   renderHistory();
   renderStudents();
-
-  // Se envían también los campos calculados. El total se reconstruye desde el
-  // historial después de cada sincronización, por lo que coincide en todos los equipos.
-  try{
-    await apiPostWithRetry({ type:'add_attendance', record: scoredRecord });
-  }catch(e){ /* ya se avisó del reintento en apiPostWithRetry */ }
-
-  scoredRecord = state.attendance.find(item=>item.id === record.id) || scoredRecord;
-  const puntosGanados = Number(scoredRecord.puntosObtenidos) || 0;
-  const estadoLlegada = scoredRecord.estadoPuntualidad || arrivalScore.estado;
-  const totalAlumno = Number(student.puntaje) || 0;
-
-  const badges = canal.map(c=>{
-    if(c==='correo') return '<span class="result-badge">✉️ Correo enviado</span>';
-    if(c==='whatsapp') return '<span class="result-badge">💬 WhatsApp enviado</span>';
-    return '<span class="result-badge">Solo registrado (sin canal configurado)</span>';
-  }).join('');
-  const puntosBadge = `<span class="result-badge">🏆 +${puntosGanados} puntos · ${escapeHtml(estadoLlegada)} (total: ${totalAlumno})</span>`;
-
   area.innerHTML = `<div class="result-card"><div class="result-name">${escapeHtml(student.nombre)}</div>
     <div class="result-row"><span>Curso</span><span>${escapeHtml(student.curso||'-')}</span></div>
-    <div class="result-row"><span>Fecha</span><span>${record.fecha}</span></div>
-    <div class="result-row"><span>Hora</span><span>${record.hora}</span></div>
-    <div style="margin-top:12px;">${badges}${puntosBadge}</div></div>`;
+    <div class="result-row"><span>Fecha</span><span>${fechaActual}</span></div>
+    <div class="result-row"><span>Hora</span><span>${horaActual}</span></div>
+    <div class="result-badge">Asistencia capturada · guardando en Google</div></div>`;
 
-  showToast(canal.includes('simulado')
-    ? `Registrado. Sin correo/WhatsApp configurado para ${student.nombre}.`
-    : `Notificación enviada al apoderado de ${student.nombre}.`);
+  // Liberar inmediatamente el lector. El guardado y los avisos no bloquean al
+  // siguiente alumno; avisar al apoderado únicamente tras confirmar el guardado.
+  void (async ()=>{
+    try{
+      await apiPostWithRetry({ type:'add_attendance', record });
+      if(area.querySelector('.result-name')?.textContent === student.nombre){
+        area.querySelector('.result-badge').textContent = 'Asistencia guardada';
+      }
+      const mensaje = `${student.nombre} registró su ingreso al colegio a las ${horaActual} del ${fechaActual}.`;
+      if(student.apoderadoEmail){
+        try{ await apiPost({ type:'notify_guardian', email:student.apoderadoEmail, nombre:student.nombre, mensaje }); }
+        catch(e){ console.warn('No se pudo enviar correo al apoderado:', e); }
+      }
+      if(student.callmebotApiKey){
+        try{ await sendCallMeBot(student.apoderadoTelefono, student.callmebotApiKey, mensaje); }
+        catch(e){ console.warn('No se pudo enviar WhatsApp al apoderado:', e); }
+      }
+    }catch(e){
+      console.error('No se pudo guardar la asistencia:', e);
+      if(area.querySelector('.result-name')?.textContent === student.nombre){
+        area.querySelector('.result-badge').textContent = 'Error al guardar · revisar conexión';
+      }
+    }
+  })();
 }
+
 
 // ================= Historial =================
 function renderHistory(){
@@ -1893,7 +1888,7 @@ window.resetPuntaje = resetPuntaje;
 })();
 
 // ================= Actualización automática en todos los equipos =================
-const APP_VERSION = '22';
+const APP_VERSION = '23';
 let serviceWorkerUpdateInProgress = false;
 
 async function ensureLatestAppVersion(){
